@@ -302,12 +302,12 @@ function Dashboard() {
               <tbody>
                 {recentShipments.map(
                   (shipment) => (
-                    <tr key={shipment.shipmentId || shipment.id}>
-                      <td>
-                        <span className="mono-id">
-                          {shipment.shipmentId || shipment.id}
-                        </span>
-                      </td>
+                     <tr key={shipment.shipmentId || shipment.id}>
+                       <td>
+                         <span className="mono-id">
+                           {shipment.name || shipment.shipmentId || shipment.id}
+                         </span>
+                       </td>
 
                       <td>
                         {shipment.product || '—'}
@@ -340,11 +340,11 @@ function Dashboard() {
                       </td>
 
                       <td>
-                        <Link
-                          to={`/shipments/${shipment.shipmentId || shipment.id}`}
-                          className="icon-action"
-                          title="View shipment"
-                        >
+                         <Link
+                           to={`/shipments/${shipment.name || shipment.shipmentId || shipment.id}`}
+                           className="icon-action"
+                           title="View shipment"
+                         >
                           <FaEye />
                         </Link>
                       </td>

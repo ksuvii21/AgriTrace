@@ -7,6 +7,7 @@ import {
   getShipmentForUser,
   updateShipmentThresholds,
   updateShipmentStatus,
+  updateShipmentName,
   assignTransporter,
   assignWarehouse,
   assignRetailer,
@@ -122,6 +123,33 @@ router.patch(
       }
 
       return success(res, shipment, "Retailer assigned successfully");
+    } catch (err) {
+      return error(res, 400, err.message);
+    }
+  }
+);
+
+router.patch(
+  "/:shipmentId/name",
+  getCurrentUser,
+  requireRole(...shipmentWriteRoles),
+  async (req, res) => {
+    try {
+      const { name } = req.body;
+      if (!name) {
+        return error(res, 400, "Name is required");
+      }
+
+      const shipment = await updateShipmentName(
+        req.params.shipmentId,
+        name,
+        req.user.uid
+      );
+      if (!shipment) {
+        return error(res, 404, "Shipment not found");
+      }
+
+      return success(res, shipment, "Shipment name updated successfully");
     } catch (err) {
       return error(res, 400, err.message);
     }

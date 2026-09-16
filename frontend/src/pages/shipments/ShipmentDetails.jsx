@@ -9,7 +9,7 @@ import {
   FaLocationDot,
 } from "react-icons/fa6";
 
-import { getShipment, updateShipmentStatus, assignTransporter, assignWarehouse, updateShipmentThresholds } from "../../api/shipmentApi";
+import { getShipment, updateShipmentStatus, assignTransporter, assignWarehouse, updateShipmentThresholds, updateShipmentName } from "../../api/shipmentApi";
 import { assignDeviceToShipment } from "../../api/deviceApi";
 import { getShipmentTimeline } from "../../api/timelineApi";
 import { verifyShipmentIntegrity, createIntegrityCheckpoint } from "../../api/traceabilityApi";
@@ -50,6 +50,8 @@ function ShipmentDetails() {
   const [actionError, setActionError] = useState(null);
   const [thresholdEditor, setThresholdEditor] = useState(null);
   const [assignEditor, setAssignEditor] = useState(null);
+  const [nameEditor, setNameEditor] = useState(null);
+  const [nameValue, setNameValue] = useState("");
   const [thresholdValues, setThresholdValues] = useState({
     temperatureMin: shipment?.thresholds?.temperature?.min ?? "",
     temperatureMax: shipment?.thresholds?.temperature?.max ?? "",
@@ -188,6 +190,26 @@ function ShipmentDetails() {
     }
   };
 
+  const handleUpdateName = async () => {
+    if (!nameValue?.trim()) {
+      setActionError("Name is required");
+      return;
+    }
+    setActionLoading(true);
+    setActionError(null);
+    try {
+      await updateShipmentName(id, nameValue.trim());
+      setNameEditor(null);
+      setNameValue("");
+      fetchData();
+    } catch (err) {
+      console.error(err);
+      setActionError(err.message || "Failed to update name");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const handleUpdateThresholds = async () => {
     const tempMin = parseFloat(thresholdValues.temperatureMin);
     const tempMax = parseFloat(thresholdValues.temperatureMax);
@@ -233,6 +255,7 @@ function ShipmentDetails() {
   const status = shipment.status || "PENDING";
   const nextStatuses = ALLOWED_TRANSITIONS[status] || [];
   const sId = shipment.shipmentId || shipment.id || id;
+  const sName = shipment.name || sId;
   const sProduct = shipment.product || shipment.productName || "Unknown";
   const sSource = shipment.source || "Unknown";
   const sDestination = shipment.destination || "Unknown";
@@ -253,12 +276,26 @@ function ShipmentDetails() {
       <section className="shipment-detail-header panel">
         <div>
           <span className="eyebrow">SHIPMENT DETAILS</span>
-          <h2>{sId}</h2>
+          <h2>{sName}</h2>
           <p>{sProduct} &bull; {sSource} &rarr; {sDestination}</p>
         </div>
-        <span className={`badge ${nextStatuses.length ? "transit" : "delivered"}`}>
-          {STATUS_LABELS[status] || status}
-        </span>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <span className={`badge ${nextStatuses.length ? "transit" : "delivered"}`}>
+            {STATUS_LABELS[status] || status}
+          </span>
+          {(role === "ADMIN" || role === "FARMER") && (
+            <button
+              className="btn secondary small"
+              disabled={actionLoading}
+              onClick={() => {
+                setNameValue(shipment.name || "");
+                setNameEditor(true);
+              }}
+            >
+              Edit Name
+            </button>
+          )}
+        </div>
       </section>
 
       {actionError && <ErrorState message="Action failed" retry={() => setActionError(null)} />}
@@ -396,6 +433,7 @@ function ShipmentDetails() {
         <article className="panel">
           <div className="panel-header"><h3>Shipment Information</h3></div>
           <div className="details-grid">
+            <span className="detail-item"><span>Shipment Name</span><strong>{shipment.name || "—"}</strong></span>
             <span className="detail-item"><span>Shipment ID</span><strong>{sId}</strong></span>
             <span className="detail-item"><span>Product</span><strong>{sProduct}</strong></span>
             <span className="detail-item"><span>Source</span><strong>{sSource}</strong></span>
@@ -566,6 +604,45 @@ function ShipmentDetails() {
               </div>
               <div className="modal-actions">
                 <button type="button" className="btn secondary" onClick={() => setThresholdEditor(null)} disabled={actionLoading}>
+                  Cancel
+                </button>
+                <button type="submit" className="btn primary" disabled={actionLoading}>
+                  {actionLoading ? "Saving..." : "Save"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Name Editor Modal */}
+      {nameEditor && (
+        <div className="modal-overlay">
+          <div className="modal">
+            <div className="modal-header">
+              <h3>Change Shipment Name</h3>
+            </div>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleUpdateName();
+              }}
+            >
+              <div className="form-group">
+                <label>Shipment Name</label>
+                <input
+                  type="text"
+                  name="name"
+                  value={nameValue}
+                  onChange={(e) => setNameValue(e.target.value)}
+                  placeholder="e.g., Fresh tomatoes Sarnath to Lanka"
+                  required
+                  disabled={actionLoading}
+                  autoFocus
+                />
+              </div>
+              <div className="modal-actions">
+                <button type="button" className="btn secondary" onClick={() => setNameEditor(null)} disabled={actionLoading}>
                   Cancel
                 </button>
                 <button type="submit" className="btn primary" disabled={actionLoading}>

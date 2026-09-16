@@ -84,3 +84,11 @@ export const getShipmentQr = async (shipmentId) => {
   const response = await apiClient.get(`/shipments/${shipmentId}/qr`);
   return response.data ?? null;
 };
+
+/** Update shipment name. */
+export const updateShipmentName = async (shipmentId, name) => {
+  const response = await apiClient.patch(`/shipments/${shipmentId}/name`, {
+    name,
+  });
+  return response.data ?? null;
+};

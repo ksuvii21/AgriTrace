@@ -142,7 +142,7 @@ function ActiveShipments() {
             <article className="shipment-card" key={shipment.id}>
               <div className="sc-top">
                 <div>
-                  <div className="sc-id">{shipment.id}</div>
+                  <div className="sc-id">{shipment.name || shipment.id}</div>
                   <div className="sc-product">{shipment.product}</div>
                 </div>
                 <span className={`badge ${getStatusClass(shipment.status)}`}> {shipment.status} </span>
@@ -167,7 +167,7 @@ function ActiveShipments() {
                 <span className="sc-updated">
                   Updated {shipment.updated} · {shipment.device || "No device"}
                 </span>
-                <Link className="btn ghost small" to={`/shipments/${shipment.id}`}>View Details</Link>
+                <Link className="btn ghost small" to={`/shipments/${shipment.name || shipment.id}`}>View Details</Link>
               </div>
             </article>
           ))}
@@ -181,7 +181,7 @@ function ActiveShipments() {
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Shipment ID</th>
+                  <th>Shipment Name</th>
                   <th>Product</th>
                   <th>Source</th>
                   <th>Destination</th>
@@ -194,7 +194,7 @@ function ActiveShipments() {
               <tbody>
                 {shipments.map((shipment) => (
                   <tr key={shipment.id}>
-                    <td><span className="mono-id">{shipment.id}</span></td>
+                    <td><span className="mono-id">{shipment.name || shipment.id}</span></td>
                     <td>{shipment.product}</td>
                     <td>{shipment.source}</td>
                     <td>{shipment.destination}</td>
@@ -202,7 +202,7 @@ function ActiveShipments() {
                     <td><span className={`badge ${getStatusClass(shipment.status)}`}>{shipment.status}</span></td>
                     <td>{shipment.updated}</td>
                     <td>
-                      <Link className="btn ghost small" to={`/shipments/${shipment.id}`}>View</Link>
+                      <Link className="btn ghost small" to={`/shipments/${shipment.name || shipment.id}`}>View</Link>
                     </td>
                   </tr>
                 ))}

@@ -403,6 +403,10 @@ textarea:focus {
 	font-size: 13px;
 }
 
+.shipment-detail-header .btn.small {
+	white-space: nowrap;
+}
+
 .form-grid {
 	display: grid;
 	grid-template-columns: repeat(2, minmax(0, 1fr));

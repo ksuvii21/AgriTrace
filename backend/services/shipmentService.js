@@ -206,6 +206,31 @@ export async function createShipment(data, createdBy, role) {
   return shipmentData;
 }
 
+export async function updateShipmentName(shipmentId, name, actorId = null) {
+  if (!name || typeof name !== "string" || !name.trim()) {
+    throw new Error("Name is required");
+  }
+
+  const shipments = getCollection("shipments");
+  const shipment = await shipments.findOne({ shipmentId });
+
+  if (!shipment) return null;
+
+  const trimmedName = name.trim();
+  const result = await shipments.updateOne(
+    { shipmentId },
+    { $set: { name: trimmedName, updatedAt: new Date().toISOString() } }
+  );
+
+  if (result.matchedCount === 0) return null;
+
+  if (actorId) {
+    await addTimelineEvent(shipmentId, "SHIPMENT_NAME_UPDATED", actorId, { name: trimmedName });
+  }
+
+  return sanitizeShipment(await shipments.findOne({ shipmentId }));
+}
+
 export async function updateShipmentThresholds(shipmentId, thresholds, actorId = null) {
   validateThresholds(thresholds);
 
@@ -393,10 +418,17 @@ export async function listShipments(uid, role) {
 export async function getShipmentForUser(shipmentId, uid, role) {
   const access = buildShipmentAccessFilter({ uid, role });
 
-  const shipment = await getCollection("shipments").findOne({
+  let shipment = await getCollection("shipments").findOne({
     shipmentId,
     ...access,
   });
+
+  if (!shipment) {
+    shipment = await getCollection("shipments").findOne({
+      name: shipmentId,
+      ...access,
+    });
+  }
 
   if (!shipment) return null;
 
@@ -405,9 +437,15 @@ export async function getShipmentForUser(shipmentId, uid, role) {
 
 export async function getShipment(shipmentId, uid = null, role = null) {
   const access = buildShipmentAccessFilter({ uid, role });
-  const shipment = await getCollection("shipments").findOne({
+  let shipment = await getCollection("shipments").findOne({
     shipmentId,
     ...access,
   });
+  if (!shipment) {
+    shipment = await getCollection("shipments").findOne({
+      name: shipmentId,
+      ...access,
+    });
+  }
   return sanitizeShipment(shipment);
 }

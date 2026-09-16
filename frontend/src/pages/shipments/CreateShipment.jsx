@@ -15,6 +15,7 @@ import EmptyState from "../../components/common/EmptyState";
 import { useAuth } from "../../context/AuthContext";
 
 const initialForm = {
+  name: "",
   productName: "",
   category: "Vegetables",
   batchId: "",
@@ -92,6 +93,7 @@ function CreateShipment() {
 
     try {
       const payload = {
+        name: form.name || undefined,
         product: form.productName,
         category: form.category,
         batchId: form.batchId,
@@ -167,6 +169,14 @@ function CreateShipment() {
           icon={<FaBox />}
           title="Product Information"
         >
+          <Input
+            label="Shipment Name"
+            name="name"
+            value={form.name}
+            onChange={handleChange}
+            placeholder="e.g., Fresh tomatoes Sarnath to Lanka"
+          />
+
           <Input
             label="Product Name"
             name="productName"
