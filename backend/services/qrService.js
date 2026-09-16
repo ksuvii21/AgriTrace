@@ -1,9 +1,11 @@
 import { randomBytes } from "crypto";
 import QRCode from "qrcode";
+import { config } from "../core/config.js";
 import { getCollection } from "../core/mongo.js";
 import { getShipmentForUser } from "./shipmentService.js";
 
-const PUBLIC_TRACE_BASE_URL = process.env.PUBLIC_TRACE_BASE_URL || "http://localhost:5174/trace";
+const PUBLIC_TRACE_BASE_URL = process.env.PUBLIC_TRACE_BASE_URL?.trim()
+  || `${config.frontendUrl}/trace`;
 
 function normalizeBaseUrl(baseUrl) {
   return baseUrl.replace(/\/+$/, "");
