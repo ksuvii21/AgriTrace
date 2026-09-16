@@ -1,3 +1,10 @@
+// ============================================================
+// AgriTrace Database Seed Script
+// For development/demo purposes only - populates MongoDB with
+// sample data. Do NOT run in production with real user data.
+// Run: node seed.js
+// ============================================================
+
 import "dotenv/config";
 import { MongoClient } from "mongodb";
 import { randomUUID } from "crypto";

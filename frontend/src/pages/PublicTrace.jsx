@@ -680,7 +680,6 @@ const PublicTrace = () => {
 
             <code>
               {trace.integrity?.status || "PENDING"}
-              {trace.integrity?.blockchainMode === "mock" ? " (MOCK)" : ""}
             </code>
           </section>
         </main>
