@@ -101,13 +101,7 @@ export async function getDashboardSummary(uid, role, user = null) {
     }
   }
 
-  const recentShipments = [...shipments]
-    .sort(
-      (a, b) =>
-        new Date(b.createdAt || 0) -
-        new Date(a.createdAt || 0)
-    )
-    .slice(0, 5);
+  const recentShipments = shipments.slice(0, 5);
 
    const recentAlerts = [...rawAlerts]
      .sort(
