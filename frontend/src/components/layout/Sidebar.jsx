@@ -265,13 +265,13 @@ const Sidebar = ({
 
       <div className="sidebar-foot">
         <NavLink
-          to="/trace/demo"
+          to="/trace"
           className={({ isActive }) =>
             `nav-item ${isActive ? "active-page" : ""}`
           }
         >
           <i className="fa-solid fa-qrcode"></i>
-          <span>Consumer View (Demo)</span>
+          <span>Consumer View</span>
         </NavLink>
         <div className="sidebar-tag">
           <i className="fa-solid fa-leaf"></i>
