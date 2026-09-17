@@ -309,7 +309,10 @@ function ShipmentDetails() {
   ========================================================= */
 
   const fetchData = async () => {
+    console.log("🔵 FETCH DATA STARTED");
+
     if (!id) {
+      console.log("❌ NO ID");
       setError("Invalid shipment ID.");
       setLoading(false);
       return;
@@ -317,112 +320,37 @@ function ShipmentDetails() {
 
     setLoading(true);
     setError("");
-    setShipment(null);
 
     try {
-      console.log("[ShipmentDetails] Loading shipment:", id);
-
-      // =====================================================
-      // 1. PRIMARY REQUEST
-      // =====================================================
+      console.log("🟠 BEFORE getShipment:", id);
 
       const shipmentRes = await getShipment(id);
 
-      console.log(
-        "[ShipmentDetails] Shipment response:",
-        shipmentRes
-      );
-
-      if (!shipmentRes) {
-        throw new Error("Shipment not found.");
-      }
+      console.log("🟢 AFTER getShipment");
+      console.log("🟢 RESPONSE:", shipmentRes);
 
       setShipment(shipmentRes);
 
-      setThresholdValues({
-        temperatureMin:
-          shipmentRes?.thresholds?.temperature?.min ?? "",
-
-        temperatureMax:
-          shipmentRes?.thresholds?.temperature?.max ?? "",
-
-        humidityMin:
-          shipmentRes?.thresholds?.humidity?.min ?? "",
-
-        humidityMax:
-          shipmentRes?.thresholds?.humidity?.max ?? "",
-
-        gasLevelMax:
-          shipmentRes?.thresholds?.gasLevel?.max ?? "",
-      });
-
     } catch (err) {
-      console.error(
-        "[ShipmentDetails] Shipment load failed:",
-        err
-      );
+      console.error("🔴 GET SHIPMENT FAILED:", err);
 
       setError(
-        err?.message ||
-          "Failed to load shipment details."
+        err?.message || "Failed to load shipment details."
       );
-
     } finally {
-      // CRITICAL:
-      // Don't wait for timeline/integrity.
+      console.log("🟣 FINALLY EXECUTED");
+      console.log("🟣 SETTING LOADING FALSE");
+
       setLoading(false);
     }
-
-    // =====================================================
-    // 2. OPTIONAL TIMELINE
-    // =====================================================
-
-    getShipmentTimeline(id)
-      .then((result) => {
-        console.log(
-          "[ShipmentDetails] Timeline:",
-          result
-        );
-
-        setTimeline(
-          Array.isArray(result)
-            ? result
-            : []
-        );
-      })
-      .catch((err) => {
-        console.warn(
-          "[ShipmentDetails] Timeline unavailable:",
-          err
-        );
-
-        setTimeline([]);
-      });
-
-    // =====================================================
-    // 3. OPTIONAL INTEGRITY
-    // =====================================================
-
-    verifyShipmentIntegrity(id)
-      .then((result) => {
-        console.log(
-          "[ShipmentDetails] Integrity:",
-          result
-        );
-
-        setIntegrity(
-          result ?? null
-        );
-      })
-      .catch((err) => {
-        console.warn(
-          "[ShipmentDetails] Integrity unavailable:",
-          err
-        );
-
-        setIntegrity(null);
-      });
   };
+
+  useEffect(() => {
+    console.log("🟡 USE EFFECT RUNNING");
+    console.log("🟡 ID:", id);
+
+    fetchData();
+  }, [id]);
 
 /* =========================================================
    DERIVED DATA
