@@ -271,7 +271,9 @@ function EmptySection({ icon: Icon, title, text }) {
 ========================================================= */
 
 function ShipmentDetails() {
+  console.log("🔥 SHIPMENT DETAILS COMPONENT RENDERED");
   const { id } = useParams();
+  console.log("🔥 SHIPMENT ROUTE PARAM:", id);
   const { role } = useAuth();
 
   const [shipment, setShipment] = useState(null);
