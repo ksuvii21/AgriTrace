@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
+import ShipmentRoutePlanner from "../components/shipments/ShipmentRoutePlanner";
 
 import {
   FaTemperatureHalf,
@@ -1169,144 +1170,156 @@ function ShipmentDetails() {
       </section>
 
       {/* =====================================================
+    JOURNEY
+===================================================== */}
+
+{status !== "CANCELLED" && (
+  <section className="panel sd-section">
+    <div className="sd-section-header">
+      <div>
+        <span className="eyebrow">
           JOURNEY
-      ===================================================== */}
+        </span>
 
-      {status !== "CANCELLED" && (
-        <section className="panel sd-section">
-          <div className="sd-section-header">
-            <div>
-              <span className="eyebrow">
-                JOURNEY
-              </span>
+        <h2>Shipment Progress</h2>
 
-              <h2>Shipment Progress</h2>
+        <p>
+          Current stage of the farm-to-fork journey.
+        </p>
+      </div>
+    </div>
 
-              <p>
-                Current stage of the farm-to-fork
-                journey.
-              </p>
+    <div className="sd-progress">
+      {JOURNEY.map((step, index) => {
+        const Icon = step.icon;
+
+        const completed =
+          currentStatusIndex > index;
+
+        const current =
+          currentStatusIndex === index;
+
+        return (
+          <div
+            key={step.key}
+            className={`sd-progress-step ${
+              completed ? "completed" : ""
+            } ${current ? "current" : ""}`}
+          >
+            {index !== JOURNEY.length - 1 && (
+              <div className="sd-progress-line" />
+            )}
+
+            <div className="sd-progress-icon">
+              {completed ? (
+                <FaCircleCheck />
+              ) : (
+                <Icon />
+              )}
             </div>
+
+            <span>{step.label}</span>
           </div>
+        );
+      })}
+    </div>
+  </section>
+)}
 
-          <div className="sd-progress">
-            {JOURNEY.map((step, index) => {
-              const Icon = step.icon;
 
-              const completed =
-                currentStatusIndex > index;
+{/* =====================================================
+    AI ROUTE PLANNER
+===================================================== */}
 
-              const current =
-                currentStatusIndex === index;
+<ShipmentRoutePlanner
+  shipment={shipment}
+  currentUser={{ role }}
+/>
 
-              return (
-                <div
-                  key={step.key}
-                  className={`sd-progress-step ${
-                    completed ? "completed" : ""
-                  } ${current ? "current" : ""}`}
-                >
-                  {index !== JOURNEY.length - 1 && (
-                    <div className="sd-progress-line" />
-                  )}
 
-                  <div className="sd-progress-icon">
-                    {completed ? (
-                      <FaCircleCheck />
-                    ) : (
-                      <Icon />
-                    )}
-                  </div>
+{/* =====================================================
+    MANAGEMENT ACTIONS
+===================================================== */}
 
-                  <span>{step.label}</span>
-                </div>
-              );
-            })}
-          </div>
-        </section>
-      )}
+{canManage && (
+  <section className="panel sd-section sd-actions-panel">
+    <div className="sd-section-header">
+      <div>
+        <span className="eyebrow">
+          MANAGEMENT
+        </span>
 
-      {/* =====================================================
-          MANAGEMENT ACTIONS
-      ===================================================== */}
+        <h2>Shipment Actions</h2>
+      </div>
+    </div>
 
-      {canManage && (
-        <section className="panel sd-section sd-actions-panel">
-          <div className="sd-section-header">
-            <div>
-              <span className="eyebrow">
-                MANAGEMENT
-              </span>
+    <div className="sd-actions">
+      {nextStatuses.map((nextStatus) => (
+        <button
+          key={nextStatus}
+          className={
+            nextStatus === "CANCELLED"
+              ? "btn danger"
+              : "btn primary"
+          }
+          disabled={actionLoading}
+          onClick={() =>
+            handleUpdateStatus(nextStatus)
+          }
+        >
+          {nextStatus === "CANCELLED"
+            ? "Cancel Shipment"
+            : `Mark as ${
+                STATUS_LABELS[nextStatus] ||
+                nextStatus
+              }`}
+        </button>
+      ))}
 
-              <h2>Shipment Actions</h2>
-            </div>
-          </div>
+      <button
+        className="btn ghost"
+        disabled={actionLoading}
+        onClick={() =>
+          setAssignEditor("device")
+        }
+      >
+        <FaMicrochip />
 
-          <div className="sd-actions">
-            {nextStatuses.map((nextStatus) => (
-              <button
-                key={nextStatus}
-                className={
-                  nextStatus === "CANCELLED"
-                    ? "btn danger"
-                    : "btn primary"
-                }
-                disabled={actionLoading}
-                onClick={() =>
-                  handleUpdateStatus(nextStatus)
-                }
-              >
-                {nextStatus === "CANCELLED"
-                  ? "Cancel Shipment"
-                  : `Mark as ${
-                      STATUS_LABELS[nextStatus] ||
-                      nextStatus
-                    }`}
-              </button>
-            ))}
+        {device
+          ? "Change Device"
+          : "Assign Device"}
+      </button>
 
-            <button
-              className="btn ghost"
-              disabled={actionLoading}
-              onClick={() =>
-                setAssignEditor("device")
-              }
-            >
-              <FaMicrochip />
-              {device
-                ? "Change Device"
-                : "Assign Device"}
-            </button>
+      <button
+        className="btn ghost"
+        disabled={actionLoading}
+        onClick={() =>
+          setAssignEditor("transporter")
+        }
+      >
+        <FaTruck />
 
-            <button
-              className="btn ghost"
-              disabled={actionLoading}
-              onClick={() =>
-                setAssignEditor("transporter")
-              }
-            >
-              <FaTruck />
-              {transporter
-                ? "Change Transporter"
-                : "Assign Transporter"}
-            </button>
+        {transporter
+          ? "Change Transporter"
+          : "Assign Transporter"}
+      </button>
 
-            <button
-              className="btn ghost"
-              disabled={actionLoading}
-              onClick={() =>
-                setAssignEditor("warehouse")
-              }
-            >
-              <FaWarehouse />
-              {warehouse
-                ? "Change Warehouse"
-                : "Assign Warehouse"}
-            </button>
-          </div>
-        </section>
-      )}
+      <button
+        className="btn ghost"
+        disabled={actionLoading}
+        onClick={() =>
+          setAssignEditor("warehouse")
+        }
+      >
+        <FaWarehouse />
 
+        {warehouse
+          ? "Change Warehouse"
+          : "Assign Warehouse"}
+      </button>
+    </div>
+  </section>
+)}
       {/* =====================================================
           TIMELINE + TRACEABILITY
       ===================================================== */}
