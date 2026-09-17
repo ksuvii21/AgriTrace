@@ -38,7 +38,7 @@ export const AuthProvider = ({ children }) => {
     return () => unsubscribe();
   }, []);
 
-   // Fetch the backend (MongoDB) profile whenever the Firebase user changes.
+  // Fetch the backend (MongoDB) profile whenever the Firebase user changes.
   useEffect(() => {
     let cancelled = false;
 
@@ -91,8 +91,11 @@ export const AuthProvider = ({ children }) => {
   };
 
   // Auto-provision a FARMER profile when a user logs in without one.
+  // Runs only after the profile fetch completes and confirms no profile exists.
   useEffect(() => {
-    if (!user || profile !== null || profileLoading || profileError) return;
+    if (!user || profile !== null || profileError) return;
+    if (profileLoading) return;
+
     let cancelled = true;
     const provision = async () => {
       try {

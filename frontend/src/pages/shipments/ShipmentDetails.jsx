@@ -307,146 +307,237 @@ function ShipmentDetails() {
   ========================================================= */
 
   const fetchData = async () => {
-    if (!id) {
-      setError("Shipment ID is missing.");
-      setLoading(false);
+  if (!id) {
+    setError(
+      "Shipment identifier is missing."
+    );
+    setLoading(false);
+    return;
+  }
+
+  setLoading(true);
+  setError("");
+
+  try {
+    /*
+     * First load the shipment using the identifier
+     * supplied by the current page URL.
+     */
+    const shipmentRes =
+      await getShipment(id);
+
+    if (!shipmentRes) {
+      setShipment(null);
+      setTimeline([]);
+      setIntegrity(null);
       return;
     }
 
-    setLoading(true);
-    setError("");
+    setShipment(shipmentRes);
 
-    try {
-      /*
-       * Shipment is the only mandatory request.
-       * Timeline/integrity failure should NOT destroy the whole page.
-       */
-      const shipmentRes = await getShipment(id);
+    setThresholdValues({
+      temperatureMin:
+        shipmentRes?.thresholds
+          ?.temperature?.min ?? "",
 
-      setShipment(shipmentRes || null);
+      temperatureMax:
+        shipmentRes?.thresholds
+          ?.temperature?.max ?? "",
 
-      if (shipmentRes) {
-        setThresholdValues({
-          temperatureMin:
-            shipmentRes?.thresholds?.temperature?.min ?? "",
-          temperatureMax:
-            shipmentRes?.thresholds?.temperature?.max ?? "",
-          humidityMin:
-            shipmentRes?.thresholds?.humidity?.min ?? "",
-          humidityMax:
-            shipmentRes?.thresholds?.humidity?.max ?? "",
-          gasLevelMax:
-            shipmentRes?.thresholds?.gasLevel?.max ?? "",
-        });
-      }
+      humidityMin:
+        shipmentRes?.thresholds
+          ?.humidity?.min ?? "",
 
-      const [timelineResult, integrityResult] =
-        await Promise.allSettled([
-          getShipmentTimeline(id),
-          verifyShipmentIntegrity(id),
-        ]);
+      humidityMax:
+        shipmentRes?.thresholds
+          ?.humidity?.max ?? "",
 
-      if (timelineResult.status === "fulfilled") {
-        setTimeline(
-          Array.isArray(timelineResult.value)
-            ? timelineResult.value
-            : []
-        );
-      } else {
-        setTimeline([]);
-      }
+      gasLevelMax:
+        shipmentRes?.thresholds
+          ?.gasLevel?.max ?? "",
+    });
 
-      if (integrityResult.status === "fulfilled") {
-        setIntegrity(integrityResult.value ?? null);
-      } else {
-        setIntegrity(null);
-      }
-    } catch (err) {
-      console.error("Shipment load error:", err);
+    /*
+     * After loading the shipment, use the REAL
+     * backend shipment identifier for dependent APIs.
+     */
+    const loadedShipmentId =
+      shipmentRes?.shipmentId ||
+      shipmentRes?._id ||
+      shipmentRes?.id ||
+      "";
 
-      setError(
-        err?.message || "Failed to load shipment details."
+    if (!loadedShipmentId) {
+      console.warn(
+        "Shipment loaded without a usable shipment ID:",
+        shipmentRes
       );
-    } finally {
-      setLoading(false);
+
+      setTimeline([]);
+      setIntegrity(null);
+      return;
     }
-  };
 
-  useEffect(() => {
-    fetchData();
-  }, [id]);
+    const [
+      timelineResult,
+      integrityResult,
+    ] = await Promise.allSettled([
+      getShipmentTimeline(
+        loadedShipmentId
+      ),
 
-  /* =========================================================
-     DERIVED DATA
-  ========================================================= */
+      verifyShipmentIntegrity(
+        loadedShipmentId
+      ),
+    ]);
 
-  const status = shipment?.status || "";
+    if (
+      timelineResult.status ===
+      "fulfilled"
+    ) {
+      setTimeline(
+        Array.isArray(
+          timelineResult.value
+        )
+          ? timelineResult.value
+          : []
+      );
+    } else {
+      console.error(
+        "Timeline load error:",
+        timelineResult.reason
+      );
 
-  const nextStatuses =
-    ALLOWED_TRANSITIONS[status] || [];
+      setTimeline([]);
+    }
 
-  const shipmentId =
-    shipment?.shipmentId ||
-    shipment?.id ||
-    shipment?._id ||
-    id ||
-    "";
+    if (
+      integrityResult.status ===
+      "fulfilled"
+    ) {
+      setIntegrity(
+        integrityResult.value ??
+          null
+      );
+    } else {
+      console.error(
+        "Integrity load error:",
+        integrityResult.reason
+      );
 
-  const shipmentName = shipment?.name || "";
+      setIntegrity(null);
+    }
 
-  const product =
-    shipment?.product ||
-    shipment?.productName ||
-    "";
+  } catch (err) {
+    console.error(
+      "Shipment load error:",
+      err
+    );
 
-  const source = shipment?.source || "";
-  const destination = shipment?.destination || "";
+    setError(
+      err?.response?.data?.message ||
+      err?.response?.data?.error ||
+      err?.message ||
+      "Failed to load shipment details."
+    );
 
-  const trackingId = shipment?.trackingId || "";
+  } finally {
+    setLoading(false);
+  }
+};
 
-  const device =
-    getIdFromValue(shipment?.assignedDevice) ||
-    getIdFromValue(shipment?.device);
+/* =========================================================
+   DERIVED DATA
+========================================================= */
 
-  const transporter =
-    getIdFromValue(shipment?.transporter) ||
-    getIdFromValue(shipment?.assignedTransporter);
+const status = shipment?.status || "";
 
-  const warehouse =
-    getIdFromValue(shipment?.warehouse) ||
-    getIdFromValue(shipment?.assignedWarehouse);
+const nextStatuses =
+  ALLOWED_TRANSITIONS[status] || [];
 
-  const telemetry = useMemo(
-    () => getTelemetry(shipment),
-    [shipment]
+/*
+ * IMPORTANT:
+ * This is the REAL identifier returned by the backend.
+ * Never fall back to shipment.name or the URL parameter here.
+ */
+const shipmentId =
+  shipment?.shipmentId ||
+  shipment?._id ||
+  shipment?.id ||
+  "";
+
+const shipmentName =
+  shipment?.name || "";
+
+const product =
+  shipment?.product ||
+  shipment?.productName ||
+  "";
+
+const source =
+  shipment?.source || "";
+
+const destination =
+  shipment?.destination || "";
+
+const trackingId =
+  shipment?.trackingId || "";
+
+const device =
+  getIdFromValue(
+    shipment?.assignedDevice
+  ) ||
+  getIdFromValue(
+    shipment?.device
   );
 
-  const temperature =
-    telemetry?.temperature ??
-    telemetry?.temp ??
-    null;
+const transporter =
+  getIdFromValue(
+    shipment?.transporter
+  ) ||
+  getIdFromValue(
+    shipment?.assignedTransporter
+  );
 
-  const humidity =
-    telemetry?.humidity ??
-    null;
+const warehouse =
+  getIdFromValue(
+    shipment?.warehouse
+  ) ||
+  getIdFromValue(
+    shipment?.assignedWarehouse
+  );
 
-  const gasLevel =
-    telemetry?.gasLevel ??
-    telemetry?.gas ??
-    telemetry?.gasRaw ??
-    null;
+const telemetry = useMemo(
+  () => getTelemetry(shipment),
+  [shipment]
+);
 
-  const battery =
-    telemetry?.battery ??
-    telemetry?.batteryLevel ??
-    telemetry?.batteryPercent ??
-    null;
+const temperature =
+  telemetry?.temperature ??
+  telemetry?.temp ??
+  null;
 
-  const telemetryTime =
-    telemetry?.timestamp ||
-    telemetry?.createdAt ||
-    telemetry?.recordedAt ||
-    "";
+const humidity =
+  telemetry?.humidity ??
+  null;
+
+const gasLevel =
+  telemetry?.gasLevel ??
+  telemetry?.gas ??
+  telemetry?.gasRaw ??
+  null;
+
+const battery =
+  telemetry?.battery ??
+  telemetry?.batteryLevel ??
+  telemetry?.batteryPercent ??
+  null;
+
+const telemetryTime =
+  telemetry?.timestamp ||
+  telemetry?.createdAt ||
+  telemetry?.recordedAt ||
+  "";
 
   /* =========================================================
      TOAST
@@ -460,158 +551,297 @@ function ShipmentDetails() {
     }, 3000);
   };
 
-  /* =========================================================
-     STATUS UPDATE
-  ========================================================= */
+ /* =========================================================
+   STATUS UPDATE
+========================================================= */
 
-  const handleUpdateStatus = async (newStatus) => {
-    setActionLoading(true);
-    setActionError("");
+const handleUpdateStatus = async (newStatus) => {
+  if (!shipmentId) {
+    setActionError(
+      "Shipment ID is unavailable."
+    );
+    return;
+  }
 
-    try {
-      await updateShipmentStatus(id, newStatus);
+  setActionLoading(true);
+  setActionError("");
 
-      showSuccess(
-        `Shipment updated to ${
-          STATUS_LABELS[newStatus] || newStatus
-        }.`
-      );
+  try {
+    await updateShipmentStatus(
+      shipmentId,
+      newStatus
+    );
 
-      await fetchData();
-    } catch (err) {
-      console.error(err);
+    showSuccess(
+      `Shipment updated to ${
+        STATUS_LABELS[newStatus] ||
+        newStatus
+      }.`
+    );
 
-      setActionError(
-        err?.message || "Failed to update shipment status."
-      );
-    } finally {
-      setActionLoading(false);
-    }
-  };
+    await fetchData();
 
-  /* =========================================================
-     ASSIGNMENTS
-  ========================================================= */
+  } catch (err) {
+    console.error(
+      "Shipment status update error:",
+      err
+    );
 
-  const handleAssignDevice = async (deviceId) => {
-    if (!deviceId?.trim()) return;
+    setActionError(
+      err?.response?.data?.message ||
+      err?.response?.data?.error ||
+      err?.message ||
+      "Failed to update shipment status."
+    );
 
-    setActionLoading(true);
-    setActionError("");
+  } finally {
+    setActionLoading(false);
+  }
+};
 
-    try {
-      await assignDeviceToShipment(
-        deviceId.trim(),
-        id
-      );
 
-      setAssignEditor(null);
+/* =========================================================
+   ASSIGNMENTS
+========================================================= */
 
-      showSuccess("Device assigned successfully.");
+const handleAssignDevice = async (deviceId) => {
+  const cleanDeviceId =
+    deviceId?.trim();
 
-      await fetchData();
-    } catch (err) {
-      console.error(err);
+  if (!cleanDeviceId) {
+    setActionError(
+      "Device ID is required."
+    );
+    return;
+  }
 
-      setActionError(
-        err?.message || "Failed to assign device."
-      );
-    } finally {
-      setActionLoading(false);
-    }
-  };
+  if (!shipmentId) {
+    setActionError(
+      "Shipment ID is unavailable."
+    );
+    return;
+  }
 
-  const handleAssignTransporter = async (transporterId) => {
-    if (!transporterId?.trim()) return;
+  setActionLoading(true);
+  setActionError("");
 
-    setActionLoading(true);
-    setActionError("");
+  try {
+    /*
+     * Your existing device API was already called as:
+     *
+     * assignDeviceToShipment(deviceId, shipmentId)
+     *
+     * so we preserve that argument order.
+     */
+    await assignDeviceToShipment(
+      cleanDeviceId,
+      shipmentId
+    );
 
-    try {
-      await assignTransporter(
-        id,
-        transporterId.trim()
-      );
+    setAssignEditor(null);
 
-      setAssignEditor(null);
+    showSuccess(
+      "Device assigned successfully."
+    );
 
-      showSuccess("Transporter assigned successfully.");
+    await fetchData();
 
-      await fetchData();
-    } catch (err) {
-      console.error(err);
+  } catch (err) {
+    console.error(
+      "Device assignment error:",
+      err
+    );
 
-      setActionError(
-        err?.message || "Failed to assign transporter."
-      );
-    } finally {
-      setActionLoading(false);
-    }
-  };
+    setActionError(
+      err?.response?.data?.message ||
+      err?.response?.data?.error ||
+      err?.message ||
+      "Failed to assign device."
+    );
 
-  const handleAssignWarehouse = async (warehouseId) => {
-    if (!warehouseId?.trim()) return;
+  } finally {
+    setActionLoading(false);
+  }
+};
 
-    setActionLoading(true);
-    setActionError("");
 
-    try {
-      await assignWarehouse(
-        id,
-        warehouseId.trim()
-      );
+const handleAssignTransporter = async (
+  transporterId
+) => {
+  const cleanTransporterId =
+    transporterId?.trim();
 
-      setAssignEditor(null);
+  if (!cleanTransporterId) {
+    setActionError(
+      "Transporter ID is required."
+    );
+    return;
+  }
 
-      showSuccess("Warehouse assigned successfully.");
+  if (!shipmentId) {
+    setActionError(
+      "Shipment ID is unavailable."
+    );
+    return;
+  }
 
-      await fetchData();
-    } catch (err) {
-      console.error(err);
+  setActionLoading(true);
+  setActionError("");
 
-      setActionError(
-        err?.message || "Failed to assign warehouse."
-      );
-    } finally {
-      setActionLoading(false);
-    }
-  };
+  try {
+    console.log(
+      "Assigning transporter:",
+      {
+        shipmentId,
+        transporterId:
+          cleanTransporterId,
+      }
+    );
+
+    await assignTransporter(
+      shipmentId,
+      cleanTransporterId
+    );
+
+    setAssignEditor(null);
+
+    showSuccess(
+      "Transporter assigned successfully."
+    );
+
+    await fetchData();
+
+  } catch (err) {
+    console.error(
+      "Transporter assignment error:",
+      err
+    );
+
+    setActionError(
+      err?.response?.data?.message ||
+      err?.response?.data?.error ||
+      err?.message ||
+      "Failed to assign transporter."
+    );
+
+  } finally {
+    setActionLoading(false);
+  }
+};
+
+
+const handleAssignWarehouse = async (
+  warehouseId
+) => {
+  const cleanWarehouseId =
+    warehouseId?.trim();
+
+  if (!cleanWarehouseId) {
+    setActionError(
+      "Warehouse ID is required."
+    );
+    return;
+  }
+
+  if (!shipmentId) {
+    setActionError(
+      "Shipment ID is unavailable."
+    );
+    return;
+  }
+
+  setActionLoading(true);
+  setActionError("");
+
+  try {
+    await assignWarehouse(
+      shipmentId,
+      cleanWarehouseId
+    );
+
+    setAssignEditor(null);
+
+    showSuccess(
+      "Warehouse assigned successfully."
+    );
+
+    await fetchData();
+
+  } catch (err) {
+    console.error(
+      "Warehouse assignment error:",
+      err
+    );
+
+    setActionError(
+      err?.response?.data?.message ||
+      err?.response?.data?.error ||
+      err?.message ||
+      "Failed to assign warehouse."
+    );
+
+  } finally {
+    setActionLoading(false);
+  }
+};
 
   /* =========================================================
      NAME
   ========================================================= */
 
-  const handleUpdateName = async () => {
-    const cleanName = nameValue.trim();
+const handleUpdateName = async () => {
+  const cleanName =
+    nameValue.trim();
 
-    if (!cleanName) {
-      setActionError("Shipment name is required.");
-      return;
-    }
+  if (!cleanName) {
+    setActionError(
+      "Shipment name is required."
+    );
+    return;
+  }
 
-    setActionLoading(true);
-    setActionError("");
+  if (!shipmentId) {
+    setActionError(
+      "Shipment ID is unavailable."
+    );
+    return;
+  }
 
-    try {
-      await updateShipmentName(id, cleanName);
+  setActionLoading(true);
+  setActionError("");
 
-      setNameEditor(false);
-      setNameValue("");
+  try {
+    await updateShipmentName(
+      shipmentId,
+      cleanName
+    );
 
-      showSuccess("Shipment name updated.");
+    setNameEditor(false);
+    setNameValue("");
 
-      await fetchData();
-    } catch (err) {
-      console.error(err);
+    showSuccess(
+      "Shipment name updated."
+    );
 
-      setActionError(
-        err?.message || "Failed to update shipment name."
-      );
-    } finally {
-      setActionLoading(false);
-    }
-  };
+    await fetchData();
 
+  } catch (err) {
+    console.error(
+      "Shipment name update error:",
+      err
+    );
+
+    setActionError(
+      err?.response?.data?.message ||
+      err?.response?.data?.error ||
+      err?.message ||
+      "Failed to update shipment name."
+    );
+
+  } finally {
+    setActionLoading(false);
+  }
+};
   /* =========================================================
      THRESHOLDS
   ========================================================= */
@@ -678,21 +908,24 @@ function ShipmentDetails() {
     setActionError("");
 
     try {
-      await updateShipmentThresholds(id, {
-        temperature: {
-          min: tempMin,
-          max: tempMax,
-        },
+      await updateShipmentThresholds(
+  shipmentId,
+  {
+    temperature: {
+      min: tempMin,
+      max: tempMax,
+    },
 
-        humidity: {
-          min: humidityMin,
-          max: humidityMax,
-        },
+    humidity: {
+      min: humidityMin,
+      max: humidityMax,
+    },
 
-        gasLevel: {
-          max: gasMax,
-        },
-      });
+    gasLevel: {
+      max: gasMax,
+    },
+  }
+);
 
       setThresholdEditor(false);
 
@@ -714,28 +947,50 @@ function ShipmentDetails() {
      QR
   ========================================================= */
 
-  const handleGenerateQr = async () => {
-    setActionLoading(true);
-    setActionError("");
+const handleGenerateQr = async () => {
+  if (!shipmentId) {
+    setActionError(
+      "Shipment ID is unavailable."
+    );
+    return;
+  }
 
-    try {
-      const data = await getShipmentQr(id);
+  setActionLoading(true);
+  setActionError("");
 
-      setQrData(data || null);
-
-      if (data?.qrDataUrl) {
-        showSuccess("Shipment QR generated.");
-      }
-    } catch (err) {
-      console.error(err);
-
-      setActionError(
-        err?.message || "Failed to generate QR code."
+  try {
+    const data =
+      await getShipmentQr(
+        shipmentId
       );
-    } finally {
-      setActionLoading(false);
+
+    setQrData(
+      data || null
+    );
+
+    if (data?.qrDataUrl) {
+      showSuccess(
+        "Shipment QR generated."
+      );
     }
-  };
+
+  } catch (err) {
+    console.error(
+      "QR generation error:",
+      err
+    );
+
+    setActionError(
+      err?.response?.data?.message ||
+      err?.response?.data?.error ||
+      err?.message ||
+      "Failed to generate QR code."
+    );
+
+  } finally {
+    setActionLoading(false);
+  }
+};
 
   const handleDownloadQr = async () => {
     if (!qrData?.qrDataUrl) return;
@@ -807,30 +1062,52 @@ function ShipmentDetails() {
      INTEGRITY
   ========================================================= */
 
-  const handleCreateCheckpoint = async () => {
-    setActionLoading(true);
-    setActionError("");
+const handleCreateCheckpoint = async () => {
+  if (!shipmentId) {
+    setActionError(
+      "Shipment ID is unavailable."
+    );
+    return;
+  }
 
-    try {
-      await createIntegrityCheckpoint(id);
+  setActionLoading(true);
+  setActionError("");
 
-      const result =
-        await verifyShipmentIntegrity(id);
+  try {
+    await createIntegrityCheckpoint(
+      shipmentId
+    );
 
-      setIntegrity(result ?? null);
-
-      showSuccess("Integrity checkpoint created.");
-    } catch (err) {
-      console.error(err);
-
-      setActionError(
-        err?.message ||
-          "Failed to create integrity checkpoint."
+    const result =
+      await verifyShipmentIntegrity(
+        shipmentId
       );
-    } finally {
-      setActionLoading(false);
-    }
-  };
+
+    setIntegrity(
+      result ?? null
+    );
+
+    showSuccess(
+      "Integrity checkpoint created."
+    );
+
+  } catch (err) {
+    console.error(
+      "Integrity checkpoint error:",
+      err
+    );
+
+    setActionError(
+      err?.response?.data?.message ||
+      err?.response?.data?.error ||
+      err?.message ||
+      "Failed to create integrity checkpoint."
+    );
+
+  } finally {
+    setActionLoading(false);
+  }
+};
 
   /* =========================================================
      LOAD STATES
@@ -885,7 +1162,7 @@ function ShipmentDetails() {
             </span>
 
             <h1>
-              {shipmentName || "Unnamed Shipment"}
+              {shipmentName || "Shipment"}
             </h1>
 
             <div className="sd-hero-meta">

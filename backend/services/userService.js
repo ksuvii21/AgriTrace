@@ -1,4 +1,5 @@
 import { getCollection } from "../core/mongo.js";
+import { Role } from "../core/roles.js";
 
 export async function createUserProfile(uid, email, role) {
   const users = getCollection("users");
@@ -11,6 +12,13 @@ export async function createUserProfile(uid, email, role) {
   let existing = await users.findOne({ uid });
 
   if (existing) {
+    if (role && role !== Role.FARMER && existing.role !== role) {
+      await users.updateOne(
+        { _id: existing._id },
+        { $set: { role, updatedAt: new Date().toISOString() } }
+      );
+      return { ...existing, role, updatedAt: new Date().toISOString() };
+    }
     return existing;
   }
 
