@@ -1,8 +1,15 @@
 // ============================================================
 // AgriTrace Database Seed Script
-// For development/demo purposes only - populates MongoDB with
-// sample data. Do NOT run in production with real user data.
-// Run: node seed.js
+//
+// IMPORTANT:
+// Users are NOT created here.
+//
+// First create/register real users through AgriTrace/Firebase.
+// This script finds those users in MongoDB using their emails
+// and uses their REAL Firebase UID for shipment relationships.
+//
+// Run:
+//    node seed.js
 // ============================================================
 
 import "dotenv/config";
@@ -10,7 +17,7 @@ import { MongoClient } from "mongodb";
 import { randomUUID } from "crypto";
 
 // ============================================================
-// MongoDB Configuration
+// DATABASE CONFIG
 // ============================================================
 
 const MONGO_URI = process.env.MONGO_URI;
@@ -22,1381 +29,2640 @@ const MONGO_DB =
 
 if (!MONGO_URI) {
   throw new Error(
-    "MONGO_URI is missing. Add MONGO_URI to your .env file."
+    "MONGO_URI is missing from .env"
   );
 }
 
-const client = new MongoClient(MONGO_URI);
+// ============================================================
+// REAL REGISTERED USER EMAILS
+// ============================================================
+
+const FARMER_EMAIL =
+  process.env.SEED_FARMER_EMAIL || 'farmer@agritrace.demo';
+
+const TRANSPORTER_EMAIL =
+  process.env.SEED_TRANSPORTER_EMAIL || 'transporter@agritrace.demo';
+
+const WAREHOUSE_EMAIL =
+  process.env.SEED_WAREHOUSE_EMAIL || 'warehouse@agritrace.demo';
+
+if (!FARMER_EMAIL) {
+  throw new Error(
+    "SEED_FARMER_EMAIL is missing from .env"
+  );
+}
+
+if (!TRANSPORTER_EMAIL) {
+  throw new Error(
+    "SEED_TRANSPORTER_EMAIL is missing from .env"
+  );
+}
+
+if (!WAREHOUSE_EMAIL) {
+  throw new Error(
+    "SEED_WAREHOUSE_EMAIL is missing from .env"
+  );
+}
+
+const client =
+  new MongoClient(MONGO_URI);
 
 let db;
 
 // ============================================================
-// Constants
+// STATUS
 // ============================================================
 
 const SHIPMENT_STATUS = {
-  PENDING: "PENDING",
-  READY_FOR_DISPATCH: "READY_FOR_DISPATCH",
-  IN_TRANSIT: "IN_TRANSIT",
-  AT_WAREHOUSE: "AT_WAREHOUSE",
-  DELIVERED: "DELIVERED",
+  PENDING:
+    "PENDING",
+
+  DEVICE_ASSIGNED:
+    "DEVICE_ASSIGNED",
+
+  READY_FOR_DISPATCH:
+    "READY_FOR_DISPATCH",
+
+  IN_TRANSIT:
+    "IN_TRANSIT",
+
+  AT_WAREHOUSE:
+    "AT_WAREHOUSE",
+
+  DELIVERED:
+    "DELIVERED",
+
+  CANCELLED:
+    "CANCELLED",
 };
+
+// ============================================================
+// TIMELINE TYPES
+// ============================================================
 
 const TimelineEventType = {
-  SHIPMENT_CREATED: "SHIPMENT_CREATED",
-  DEVICE_ASSIGNED: "DEVICE_ASSIGNED",
-  READY_FOR_DISPATCH: "READY_FOR_DISPATCH",
-  SHIPMENT_DISPATCHED: "SHIPMENT_DISPATCHED",
-  WAREHOUSE_RECEIVED: "WAREHOUSE_RECEIVED",
-  DELIVERY_COMPLETED: "DELIVERY_COMPLETED",
-  TEMPERATURE_EXCURSION: "TEMPERATURE_EXCURSION",
-  DEVICE_OFFLINE: "DEVICE_OFFLINE",
+  SHIPMENT_CREATED:
+    "SHIPMENT_CREATED",
+
+  DEVICE_ASSIGNED:
+    "DEVICE_ASSIGNED",
+
+  TRANSPORTER_ASSIGNED:
+    "TRANSPORTER_ASSIGNED",
+
+  WAREHOUSE_ASSIGNED:
+    "WAREHOUSE_ASSIGNED",
+
+  READY_FOR_DISPATCH:
+    "READY_FOR_DISPATCH",
+
+  SHIPMENT_DISPATCHED:
+    "SHIPMENT_DISPATCHED",
+
+  WAREHOUSE_RECEIVED:
+    "WAREHOUSE_RECEIVED",
+
+  DELIVERY_COMPLETED:
+    "DELIVERY_COMPLETED",
+
+  TEMPERATURE_EXCURSION:
+    "TEMPERATURE_EXCURSION",
+
+  DEVICE_OFFLINE:
+    "DEVICE_OFFLINE",
 };
 
 // ============================================================
-// Date Helpers
+// SHIPMENT IDS
 // ============================================================
 
-const NOW = new Date().toISOString();
+const SHIPMENTS = {
+  PENDING:
+    "SHP-DEMO-001",
 
-const PAST = (days) =>
-  new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+  DEVICE_ASSIGNED:
+    "SHP-DEMO-002",
+
+  READY:
+    "SHP-DEMO-003",
+
+  TRANSIT:
+    "SHP-DEMO-004",
+
+  WAREHOUSE:
+    "SHP-DEMO-005",
+
+  DELIVERED:
+    "SHP-DEMO-006",
+};
 
 // ============================================================
-// Check whether document already exists
+// DATE HELPERS
 // ============================================================
 
-async function docExists(collectionName, field, value) {
-  const document = await db.collection(collectionName).findOne(
-    {
-      [field]: value,
-    },
-    {
-      projection: {
-        _id: 1,
-      },
-    }
-  );
+const NOW =
+  new Date().toISOString();
 
-  return Boolean(document);
+const PAST = (
+  days,
+  hours = 0
+) =>
+  new Date(
+    Date.now() -
+      days * 24 * 60 * 60 * 1000 -
+      hours * 60 * 60 * 1000
+  ).toISOString();
+
+// ============================================================
+// FIND REAL REGISTERED USERS
+// ============================================================
+
+async function findRegisteredUser(
+  email,
+  expectedRole
+) {
+  const user =
+    await db
+      .collection("users")
+      .findOne({
+        email: {
+          $regex:
+            `^${email.replace(
+              /[.*+?^${}()|[\]\\]/g,
+              "\\$&"
+            )}$`,
+          $options: "i",
+        },
+      });
+
+  if (!user) {
+    throw new Error(
+      `No registered user found for ${email}. ` +
+      `Register this account through AgriTrace first.`
+    );
+  }
+
+  if (!user.uid) {
+    throw new Error(
+      `User ${email} does not contain a Firebase uid.`
+    );
+  }
+
+  if (
+    String(user.role).toUpperCase() !==
+    expectedRole
+  ) {
+    throw new Error(
+      `${email} has role ${user.role}, ` +
+      `but ${expectedRole} was expected.`
+    );
+  }
+
+  return user;
 }
 
 // ============================================================
-// Create MongoDB indexes
+// LOAD REAL USERS
+// ============================================================
+
+async function loadUsers() {
+  const farmer =
+    await findRegisteredUser(
+      FARMER_EMAIL,
+      "FARMER"
+    );
+
+  const transporter =
+    await findRegisteredUser(
+      TRANSPORTER_EMAIL,
+      "TRANSPORTER"
+    );
+
+  const warehouse =
+    await findRegisteredUser(
+      WAREHOUSE_EMAIL,
+      "WAREHOUSE"
+    );
+
+  console.log(
+    "\nRegistered users found:"
+  );
+
+  console.log(
+    `  FARMER      : ${farmer.email}`
+  );
+
+  console.log(
+    `  UID         : ${farmer.uid}`
+  );
+
+  console.log(
+    `  TRANSPORTER : ${transporter.email}`
+  );
+
+  console.log(
+    `  UID         : ${transporter.uid}`
+  );
+
+  console.log(
+    `  WAREHOUSE   : ${warehouse.email}`
+  );
+
+  console.log(
+    `  UID         : ${warehouse.uid}`
+  );
+
+  return {
+    farmer,
+    transporter,
+    warehouse,
+  };
+}
+
+// ============================================================
+// INDEXES
 // ============================================================
 
 async function createIndexes() {
-  console.log("Using existing MongoDB indexes.\n");
+  const indexes = [
+    [
+      "devices",
+      { deviceId: 1 },
+      { unique: true },
+    ],
+
+    [
+      "shipments",
+      { shipmentId: 1 },
+      { unique: true },
+    ],
+
+    [
+      "shipments",
+      { trackingId: 1 },
+      { unique: true },
+    ],
+
+    [
+      "shipments",
+      { farmerId: 1 },
+      {},
+    ],
+
+    [
+      "shipments",
+      { transporterId: 1 },
+      {},
+    ],
+
+    [
+      "shipments",
+      { warehouseId: 1 },
+      {},
+    ],
+
+    [
+      "alerts",
+      { alertId: 1 },
+      { unique: true },
+    ],
+
+    [
+      "timeline",
+      {
+        shipmentId: 1,
+        timestamp: 1,
+      },
+      {},
+    ],
+  ];
+
+  for (
+    const [
+      collection,
+      keys,
+      options,
+    ] of indexes
+  ) {
+    try {
+      await db
+        .collection(collection)
+        .createIndex(
+          keys,
+          options
+        );
+    } catch (error) {
+      console.warn(
+        `Index warning (${collection}):`,
+        error.message
+      );
+    }
+  }
+
+  console.log(
+    "Database indexes checked."
+  );
 }
 
 // ============================================================
-// Seed Users
+// UPSERT HELPER
 // ============================================================
 
-async function seedUsers() {
-  const users = [
-    {
-      uid: "seeds-farmer-001",
-      email: "farmer@agritrace.demo",
-      role: "FARMER",
-      name: "Kritika Gupta",
-      phone: "+91 98765 43210",
-      organisation: "AgriTrace Demo Network",
-      orgType: "Multi-stakeholder Supply Chain",
-      state: "Uttar Pradesh",
-      district: "Lucknow",
-      createdAt: PAST(30),
-      updatedAt: NOW,
-    },
+async function upsertMany(
+  collection,
+  documents,
+  key
+) {
+  for (
+    const document of documents
+  ) {
+    await db
+      .collection(collection)
+      .updateOne(
+        {
+          [key]:
+            document[key],
+        },
 
-    {
-      uid: "seeds-transporter-001",
-      email: "transporter@agritrace.demo",
-      role: "TRANSPORTER",
-      name: "Rajesh Kumar",
-      phone: "+91 98765 43211",
-      organisation: "QuickTrans Logistics",
-      orgType: "Transport",
-      state: "Uttar Pradesh",
-      district: "Noida",
-      createdAt: PAST(28),
-      updatedAt: NOW,
-    },
+        {
+          $set:
+            document,
+        },
 
-    {
-      uid: "seeds-warehouse-001",
-      email: "warehouse@agritrace.demo",
-      role: "WAREHOUSE",
-      name: "Sunita Devi",
-      phone: "+91 98765 43212",
-      organisation: "ColdStore Agri Hub",
-      orgType: "Warehousing",
-      state: "Rajasthan",
-      district: "Jaipur",
-      createdAt: PAST(25),
-      updatedAt: NOW,
-    },
-
-    {
-      uid: "seeds-admin-001",
-      email: "admin@agritrace.demo",
-      role: "ADMIN",
-      name: "Admin User",
-      phone: "+91 98765 43213",
-      organisation: "AgriTrace Platform",
-      orgType: "Platform",
-      state: "Delhi",
-      district: "New Delhi",
-      createdAt: PAST(365),
-      updatedAt: NOW,
-    },
-  ];
-
-  for (const user of users) {
-    const exists = await docExists(
-      "users",
-      "uid",
-      user.uid
-    );
-
-    if (exists) {
-      console.log(
-        `  User skipped (exists): ${user.email}`
+        {
+          upsert:
+            true,
+        }
       );
-
-      continue;
-    }
-
-    await db.collection("users").insertOne(user);
-
-    console.log(
-      `  User: ${user.email} (${user.role})`
-    );
   }
 }
 
 // ============================================================
-// Seed Devices
+// THRESHOLDS
+// ============================================================
+
+const produceThresholds = {
+  temperature: {
+    min: 8,
+    max: 28,
+  },
+
+  humidity: {
+    min: 40,
+    max: 80,
+  },
+
+  gasLevel: {
+    max: 50,
+  },
+};
+
+const dairyThresholds = {
+  temperature: {
+    min: 2,
+    max: 8,
+  },
+
+  humidity: {
+    min: 30,
+    max: 60,
+  },
+
+  gasLevel: {
+    max: 50,
+  },
+};
+
+// ============================================================
+// SEED DEVICES
 // ============================================================
 
 async function seedDevices() {
   const devices = [
     {
-      deviceId: "DEV-001",
-      serialNumber: "SN-DEV-001",
-      status: "ONLINE",
-      battery: 87,
-      firmwareVersion: "2.1.4",
-      currentShipmentId: "seed-ship-001",
-      location: "Lucknow, UP",
-      type: "Sensor",
-      lastSeenAt: NOW,
-      createdAt: NOW,
+      deviceId:
+        "DEV-001",
+
+      serialNumber:
+        "AGRITRACE-NODE-001",
+
+      status:
+        "ONLINE",
+
+      battery:
+        87,
+
+      firmwareVersion:
+        "1.0.0",
+
+      currentShipmentId:
+        SHIPMENTS.TRANSIT,
+
+      location:
+        "In Transit",
+
+      type:
+        "AgriTrace Sensor Node",
+
+      lastSeenAt:
+        NOW,
+
+      createdAt:
+        PAST(20),
+
+      updatedAt:
+        NOW,
     },
 
     {
-      deviceId: "DEV-002",
-      serialNumber: "SN-DEV-002",
-      status: "ONLINE",
-      battery: 64,
-      firmwareVersion: "2.1.3",
-      currentShipmentId: "seed-ship-002",
-      location: "Noida, UP",
-      type: "Sensor",
-      lastSeenAt: NOW,
-      createdAt: NOW,
+      deviceId:
+        "DEV-002",
+
+      serialNumber:
+        "AGRITRACE-NODE-002",
+
+      status:
+        "ONLINE",
+
+      battery:
+        76,
+
+      firmwareVersion:
+        "1.0.0",
+
+      currentShipmentId:
+        SHIPMENTS.DEVICE_ASSIGNED,
+
+      location:
+        "Noida, Uttar Pradesh",
+
+      type:
+        "AgriTrace Sensor Node",
+
+      lastSeenAt:
+        NOW,
+
+      createdAt:
+        PAST(18),
+
+      updatedAt:
+        NOW,
     },
 
     {
-      deviceId: "DEV-003",
-      serialNumber: "SN-DEV-003",
-      status: "OFFLINE",
-      battery: 12,
-      firmwareVersion: "2.0.1",
-      currentShipmentId: "seed-ship-003",
-      location: "Jaipur, RJ",
-      type: "Gateway",
-      lastSeenAt: PAST(2),
-      createdAt: PAST(10),
+      deviceId:
+        "DEV-003",
+
+      serialNumber:
+        "AGRITRACE-NODE-003",
+
+      status:
+        "ONLINE",
+
+      battery:
+        81,
+
+      firmwareVersion:
+        "1.0.0",
+
+      currentShipmentId:
+        SHIPMENTS.READY,
+
+      location:
+        "Lucknow, Uttar Pradesh",
+
+      type:
+        "AgriTrace Sensor Node",
+
+      lastSeenAt:
+        NOW,
+
+      createdAt:
+        PAST(16),
+
+      updatedAt:
+        NOW,
     },
 
     {
-      deviceId: "DEV-004",
-      serialNumber: "SN-DEV-004",
-      status: "ONLINE",
-      battery: 92,
-      firmwareVersion: "2.1.4",
-      currentShipmentId: null,
-      location: "Delhi, DL",
-      type: "Tracker",
-      lastSeenAt: NOW,
-      createdAt: NOW,
+      deviceId:
+        "DEV-004",
+
+      serialNumber:
+        "AGRITRACE-NODE-004",
+
+      status:
+        "ONLINE",
+
+      battery:
+        68,
+
+      firmwareVersion:
+        "1.0.0",
+
+      // Delivered shipment means
+      // the device is available again.
+
+      currentShipmentId:
+        null,
+
+      location:
+        "Delhi",
+
+      type:
+        "AgriTrace Sensor Node",
+
+      lastSeenAt:
+        NOW,
+
+      createdAt:
+        PAST(14),
+
+      updatedAt:
+        NOW,
     },
 
     {
-      deviceId: "DEV-005",
-      serialNumber: "SN-DEV-005",
-      status: "ONLINE",
-      battery: 45,
-      firmwareVersion: "2.1.2",
-      currentShipmentId: "seed-ship-005",
-      location: "Mumbai, MH",
-      type: "Sensor",
-      lastSeenAt: NOW,
-      createdAt: PAST(15),
+      deviceId:
+        "DEV-005",
+
+      serialNumber:
+        "AGRITRACE-NODE-005",
+
+      status:
+        "ONLINE",
+
+      battery:
+        72,
+
+      firmwareVersion:
+        "1.0.0",
+
+      currentShipmentId:
+        SHIPMENTS.WAREHOUSE,
+
+      location:
+        "Noida, Uttar Pradesh",
+
+      type:
+        "AgriTrace Sensor Node",
+
+      lastSeenAt:
+        NOW,
+
+      createdAt:
+        PAST(12),
+
+      updatedAt:
+        NOW,
+    },
+
+    {
+      deviceId:
+        "DEV-006",
+
+      serialNumber:
+        "AGRITRACE-NODE-006",
+
+      status:
+        "OFFLINE",
+
+      battery:
+        14,
+
+      firmwareVersion:
+        "1.0.0",
+
+      currentShipmentId:
+        null,
+
+      location:
+        "Lucknow, Uttar Pradesh",
+
+      type:
+        "AgriTrace Sensor Node",
+
+      lastSeenAt:
+        PAST(1),
+
+      createdAt:
+        PAST(10),
+
+      updatedAt:
+        PAST(1),
     },
   ];
 
-  for (const device of devices) {
-    const exists = await docExists(
-      "devices",
-      "deviceId",
-      device.deviceId
-    );
+  await upsertMany(
+    "devices",
+    devices,
+    "deviceId"
+  );
 
-    if (exists) {
-      console.log(
-        `  Device skipped (exists): ${device.deviceId}`
-      );
-
-      continue;
-    }
-
-    await db.collection("devices").insertOne(device);
-
-    console.log(`  Device: ${device.deviceId}`);
-  }
+  console.log(
+    `Devices: ${devices.length} upserted`
+  );
 }
 
 // ============================================================
-// Seed Shipments
+// SEED SHIPMENTS
 // ============================================================
 
-async function seedShipments() {
+async function seedShipments(
+  users
+) {
+  const {
+    farmer,
+    transporter,
+    warehouse,
+  } = users;
+
+  // IMPORTANT:
+  // These are REAL Firebase UIDs obtained
+  // from already registered MongoDB users.
+
+  const FARMER_ID =
+    farmer.uid;
+
+  const TRANSPORTER_ID =
+    transporter.uid;
+
+  const WAREHOUSE_ID =
+    warehouse.uid;
+
   const shipments = [
+    // ========================================================
+    // 001 - PENDING
+    // Only Farmer
+    // ========================================================
+
     {
-      shipmentId: "seed-ship-001",
-      trackingId: "AGT-2026-00001",
-      product: "Fresh Tomatoes",
-      category: "Vegetables",
+      shipmentId:
+        SHIPMENTS.PENDING,
 
-      batchId: "BATCH-001",
+      name:
+        "Lucknow Tomato Shipment",
 
-      quantity: 500,
-      unit: "kg",
-      grade: "Grade A",
+      trackingId:
+        "AGT-2026-00001",
 
-      source: "Lucknow",
-      sourceDistrict: "Lucknow",
-      sourceState: "Uttar Pradesh",
+      product:
+        "Fresh Tomatoes",
 
-      destination: "Delhi",
-      destinationState: "Delhi",
+      category:
+        "Vegetables",
 
-      pickupLocation: "Farm A, Lucknow",
+      batchId:
+        "BATCH-TOMATO-001",
+
+      quantity:
+        500,
+
+      unit:
+        "kg",
+
+      grade:
+        "Grade A",
+
+      source:
+        "Lucknow",
+
+      sourceDistrict:
+        "Lucknow",
+
+      sourceState:
+        "Uttar Pradesh",
+
+      destination:
+        "Delhi",
+
+      destinationState:
+        "Delhi",
+
+      pickupLocation:
+        "Farm Collection Centre, Lucknow",
 
       receiverOrganization:
-        "Delhi Retailers Assoc.",
+        "Delhi Fresh Produce Market",
 
-      receiverName: "Vikash Singh",
-      contactPerson: "Vikash Singh",
+      receiverName:
+        "Vikash Singh",
 
-      phone: "+91 98765 43220",
+      contactPerson:
+        "Vikash Singh",
 
-      departureDate: PAST(2),
-      departureTime: "08:00",
+      phone:
+        "+91 98765 43220",
 
-      deliveryDate: PAST(1),
+      departureDate:
+        null,
 
-      transportType: "Refrigerated Truck",
+      departureTime:
+        null,
 
-      vehicleNumber: "UP14-AB-1234",
+      deliveryDate:
+        null,
 
-      driverName: "Mohammad Ali",
+      transportType:
+        null,
 
-      status: SHIPMENT_STATUS.IN_TRANSIT,
+      vehicleNumber:
+        null,
 
-      assignedDevice: "DEV-001",
+      driverName:
+        null,
 
-      farmerId: "seeds-farmer-001",
-      createdBy: "seeds-farmer-001",
+      status:
+        SHIPMENT_STATUS.PENDING,
 
-      transporterId: "seeds-transporter-001",
+      assignedDevice:
+        null,
 
-      thresholds: {
-        temperature: {
-          min: 8,
-          max: 28,
-        },
+      device:
+        null,
 
-        humidity: {
-          min: 40,
-          max: 80,
-        },
+      farmerId:
+        FARMER_ID,
 
-        gasLevel: {
-          max: 50,
-        },
-      },
+      createdBy:
+        FARMER_ID,
 
-      temperature: 22.5,
-      humidity: 65,
+      transporterId:
+        null,
 
-      gas: "Safe",
+      warehouseId:
+        null,
 
-      battery: 87,
+      thresholds:
+        produceThresholds,
 
-      device: "DEV-001",
+      progress:
+        0,
 
-      progress: 65,
-      stage: 3,
+      stage:
+        1,
 
-      createdAt: PAST(5),
-      updatedAt: PAST(1),
+      createdAt:
+        PAST(1),
+
+      updatedAt:
+        NOW,
     },
 
+    // ========================================================
+    // 002 - DEVICE ASSIGNED
+    // Farmer + Device
+    // ========================================================
+
     {
-      shipmentId: "seed-ship-002",
-      trackingId: "AGT-2026-00002",
+      shipmentId:
+        SHIPMENTS.DEVICE_ASSIGNED,
 
-      product: "Organic Bananas",
-      category: "Fruits",
+      name:
+        "Noida Banana Shipment",
 
-      batchId: "BATCH-002",
+      trackingId:
+        "AGT-2026-00002",
 
-      quantity: 300,
-      unit: "kg",
+      product:
+        "Organic Bananas",
 
-      grade: "Grade A",
+      category:
+        "Fruits",
 
-      source: "Noida",
-      sourceDistrict: "Noida",
-      sourceState: "Uttar Pradesh",
+      batchId:
+        "BATCH-BANANA-002",
 
-      destination: "Mumbai",
-      destinationState: "Maharashtra",
+      quantity:
+        300,
 
-      pickupLocation: "Farm B, Noida",
+      unit:
+        "kg",
 
-      receiverOrganization: "Mumbai Grocers",
+      grade:
+        "Grade A",
 
-      receiverName: "Priya Sharma",
-      contactPerson: "Priya Sharma",
+      source:
+        "Noida",
 
-      phone: "+91 98765 43221",
+      sourceDistrict:
+        "Noida",
 
-      departureDate: PAST(3),
-      departureTime: "06:00",
+      sourceState:
+        "Uttar Pradesh",
 
-      deliveryDate: PAST(0),
+      destination:
+        "Mumbai",
 
-      transportType: "Refrigerated Truck",
+      destinationState:
+        "Maharashtra",
 
-      vehicleNumber: "UP14-CD-5678",
+      pickupLocation:
+        "Farm Collection Centre, Noida",
 
-      driverName: "Rajesh Verma",
+      receiverOrganization:
+        "Mumbai Grocers",
 
-      status: SHIPMENT_STATUS.AT_WAREHOUSE,
+      receiverName:
+        "Priya Sharma",
 
-      assignedDevice: "DEV-002",
+      contactPerson:
+        "Priya Sharma",
 
-      farmerId: "seeds-farmer-001",
-      createdBy: "seeds-farmer-001",
+      phone:
+        "+91 98765 43221",
 
-      transporterId: "seeds-transporter-001",
+      departureDate:
+        null,
 
-      thresholds: {
-        temperature: {
-          min: 10,
-          max: 25,
-        },
+      departureTime:
+        null,
 
-        humidity: {
-          min: 45,
-          max: 85,
-        },
+      deliveryDate:
+        null,
 
-        gasLevel: {
-          max: 50,
-        },
-      },
+      transportType:
+        null,
 
-      temperature: 18.2,
-      humidity: 72,
+      vehicleNumber:
+        null,
 
-      gas: "Safe",
+      driverName:
+        null,
 
-      battery: 64,
+      status:
+        SHIPMENT_STATUS.DEVICE_ASSIGNED,
 
-      device: "DEV-002",
+      assignedDevice:
+        "DEV-002",
 
-      progress: 85,
-      stage: 4,
+      device:
+        "DEV-002",
 
-      createdAt: PAST(7),
-      updatedAt: PAST(1),
+      farmerId:
+        FARMER_ID,
+
+      createdBy:
+        FARMER_ID,
+
+      transporterId:
+        null,
+
+      warehouseId:
+        null,
+
+      thresholds:
+        produceThresholds,
+
+      progress:
+        20,
+
+      stage:
+        2,
+
+      createdAt:
+        PAST(2),
+
+      updatedAt:
+        NOW,
     },
 
+    // ========================================================
+    // 003 - READY FOR DISPATCH
+    // Farmer + Device + Transporter
+    //
+    // Transporter can see this.
+    // ========================================================
+
     {
-      shipmentId: "seed-ship-003",
-      trackingId: "AGT-2026-00003",
+      shipmentId:
+        SHIPMENTS.READY,
 
-      product: "Basmati Rice",
-      category: "Grains",
+      name:
+        "Lucknow Vegetable Dispatch",
 
-      batchId: "BATCH-003",
+      trackingId:
+        "AGT-2026-00003",
 
-      quantity: 1000,
-      unit: "kg",
+      product:
+        "Mixed Vegetables",
 
-      grade: "Grade B",
+      category:
+        "Vegetables",
 
-      source: "Jaipur",
-      sourceDistrict: "Jaipur",
-      sourceState: "Rajasthan",
+      batchId:
+        "BATCH-VEG-003",
 
-      destination: "Delhi",
-      destinationState: "Delhi",
+      quantity:
+        750,
 
-      pickupLocation: "Warehouse A, Jaipur",
+      unit:
+        "kg",
+
+      grade:
+        "Grade A",
+
+      source:
+        "Lucknow",
+
+      sourceDistrict:
+        "Lucknow",
+
+      sourceState:
+        "Uttar Pradesh",
+
+      destination:
+        "Noida",
+
+      destinationState:
+        "Uttar Pradesh",
+
+      pickupLocation:
+        "Agri Collection Hub, Lucknow",
+
+      receiverOrganization:
+        "Noida Fresh Foods",
+
+      receiverName:
+        "Amit Patel",
+
+      contactPerson:
+        "Amit Patel",
+
+      phone:
+        "+91 98765 43222",
+
+      departureDate:
+        null,
+
+      departureTime:
+        null,
+
+      deliveryDate:
+        null,
+
+      transportType:
+        "Refrigerated Truck",
+
+      vehicleNumber:
+        "UP32-AB-1234",
+
+      driverName:
+        "Rajesh Kumar",
+
+      status:
+        SHIPMENT_STATUS.READY_FOR_DISPATCH,
+
+      assignedDevice:
+        "DEV-003",
+
+      device:
+        "DEV-003",
+
+      farmerId:
+        FARMER_ID,
+
+      createdBy:
+        FARMER_ID,
+
+      transporterId:
+        TRANSPORTER_ID,
+
+      warehouseId:
+        null,
+
+      thresholds:
+        produceThresholds,
+
+      progress:
+        35,
+
+      stage:
+        2,
+
+      createdAt:
+        PAST(3),
+
+      updatedAt:
+        NOW,
+    },
+
+    // ========================================================
+    // 004 - IN TRANSIT
+    // Farmer + Transporter + Device
+    // ========================================================
+
+    {
+      shipmentId:
+        SHIPMENTS.TRANSIT,
+
+      name:
+        "Agra Potato Transit",
+
+      trackingId:
+        "AGT-2026-00004",
+
+      product:
+        "Fresh Potatoes",
+
+      category:
+        "Vegetables",
+
+      batchId:
+        "BATCH-POTATO-004",
+
+      quantity:
+        1000,
+
+      unit:
+        "kg",
+
+      grade:
+        "Grade A",
+
+      source:
+        "Agra",
+
+      sourceDistrict:
+        "Agra",
+
+      sourceState:
+        "Uttar Pradesh",
+
+      destination:
+        "Delhi",
+
+      destinationState:
+        "Delhi",
+
+      pickupLocation:
+        "Agra Farm Collection Hub",
+
+      receiverOrganization:
+        "Delhi Food Distribution Centre",
+
+      receiverName:
+        "Neha Gupta",
+
+      contactPerson:
+        "Neha Gupta",
+
+      phone:
+        "+91 98765 43223",
+
+      departureDate:
+        PAST(1),
+
+      departureTime:
+        "06:30",
+
+      deliveryDate:
+        null,
+
+      transportType:
+        "Refrigerated Truck",
+
+      vehicleNumber:
+        "UP80-CD-5678",
+
+      driverName:
+        "Rajesh Kumar",
+
+      status:
+        SHIPMENT_STATUS.IN_TRANSIT,
+
+      assignedDevice:
+        "DEV-001",
+
+      device:
+        "DEV-001",
+
+      farmerId:
+        FARMER_ID,
+
+      createdBy:
+        FARMER_ID,
+
+      transporterId:
+        TRANSPORTER_ID,
+
+      warehouseId:
+        null,
+
+      thresholds:
+        produceThresholds,
+
+      latestTelemetry: {
+        temperature:
+          22.5,
+
+        humidity:
+          65,
+
+        // Prototype MQ-3 response value.
+        // NOT calibrated ethylene ppm.
+
+        gasLevel:
+          31,
+
+        battery:
+          87,
+
+        timestamp:
+          NOW,
+      },
+
+      temperature:
+        22.5,
+
+      humidity:
+        65,
+
+      gasLevel:
+        31,
+
+      battery:
+        87,
+
+      progress:
+        65,
+
+      stage:
+        3,
+
+      createdAt:
+        PAST(4),
+
+      updatedAt:
+        NOW,
+    },
+
+    // ========================================================
+    // 005 - AT WAREHOUSE
+    // Farmer + Transporter + Warehouse
+    // ========================================================
+
+    {
+      shipmentId:
+        SHIPMENTS.WAREHOUSE,
+
+      name:
+        "Meerut Dairy Shipment",
+
+      trackingId:
+        "AGT-2026-00005",
+
+      product:
+        "Fresh Dairy Milk",
+
+      category:
+        "Dairy",
+
+      batchId:
+        "BATCH-DAIRY-005",
+
+      quantity:
+        200,
+
+      unit:
+        "litres",
+
+      grade:
+        "Grade A",
+
+      source:
+        "Meerut",
+
+      sourceDistrict:
+        "Meerut",
+
+      sourceState:
+        "Uttar Pradesh",
+
+      destination:
+        "Noida",
+
+      destinationState:
+        "Uttar Pradesh",
+
+      pickupLocation:
+        "Dairy Collection Centre, Meerut",
+
+      receiverOrganization:
+        "FreshChain Cold Storage",
+
+      receiverName:
+        "Sunita Devi",
+
+      contactPerson:
+        "Sunita Devi",
+
+      phone:
+        "+91 98765 43224",
+
+      departureDate:
+        PAST(2),
+
+      departureTime:
+        "05:00",
+
+      deliveryDate:
+        null,
+
+      transportType:
+        "Refrigerated Van",
+
+      vehicleNumber:
+        "UP15-EF-9012",
+
+      driverName:
+        "Rajesh Kumar",
+
+      status:
+        SHIPMENT_STATUS.AT_WAREHOUSE,
+
+      assignedDevice:
+        "DEV-005",
+
+      device:
+        "DEV-005",
+
+      farmerId:
+        FARMER_ID,
+
+      createdBy:
+        FARMER_ID,
+
+      transporterId:
+        TRANSPORTER_ID,
+
+      warehouseId:
+        WAREHOUSE_ID,
+
+      thresholds:
+        dairyThresholds,
+
+      latestTelemetry: {
+        temperature:
+          6.2,
+
+        humidity:
+          44,
+
+        gasLevel:
+          20,
+
+        battery:
+          72,
+
+        timestamp:
+          NOW,
+      },
+
+      temperature:
+        6.2,
+
+      humidity:
+        44,
+
+      gasLevel:
+        20,
+
+      battery:
+        72,
+
+      progress:
+        85,
+
+      stage:
+        4,
+
+      createdAt:
+        PAST(5),
+
+      updatedAt:
+        NOW,
+    },
+
+    // ========================================================
+    // 006 - DELIVERED
+    // Complete Farm -> Transport -> Warehouse journey
+    // ========================================================
+
+    {
+      shipmentId:
+        SHIPMENTS.DELIVERED,
+
+      name:
+        "Jaipur Rice Delivery",
+
+      trackingId:
+        "AGT-2026-00006",
+
+      product:
+        "Basmati Rice",
+
+      category:
+        "Grains",
+
+      batchId:
+        "BATCH-RICE-006",
+
+      quantity:
+        1000,
+
+      unit:
+        "kg",
+
+      grade:
+        "Grade A",
+
+      source:
+        "Jaipur",
+
+      sourceDistrict:
+        "Jaipur",
+
+      sourceState:
+        "Rajasthan",
+
+      destination:
+        "Delhi",
+
+      destinationState:
+        "Delhi",
+
+      pickupLocation:
+        "Jaipur Grain Warehouse",
 
       receiverOrganization:
         "Delhi Distributors",
 
-      receiverName: "Amit Patel",
-      contactPerson: "Amit Patel",
+      receiverName:
+        "Deepak Joshi",
 
-      phone: "+91 98765 43222",
+      contactPerson:
+        "Deepak Joshi",
 
-      departureDate: PAST(4),
-      departureTime: "10:00",
+      phone:
+        "+91 98765 43225",
 
-      deliveryDate: PAST(2),
+      departureDate:
+        PAST(6),
 
-      transportType: "Open Truck",
+      departureTime:
+        "07:00",
 
-      vehicleNumber: "RJ14-EF-9012",
+      deliveryDate:
+        PAST(2),
 
-      driverName: "Suresh Yadav",
+      transportType:
+        "Truck",
 
-      status: SHIPMENT_STATUS.DELIVERED,
+      vehicleNumber:
+        "RJ14-GH-3456",
 
-      assignedDevice: "DEV-003",
+      driverName:
+        "Rajesh Kumar",
 
-      farmerId: "seeds-farmer-001",
-      createdBy: "seeds-farmer-001",
+      status:
+        SHIPMENT_STATUS.DELIVERED,
 
-      transporterId: "seeds-transporter-001",
+      assignedDevice:
+        "DEV-004",
 
-      thresholds: {
-        temperature: {
-          min: 5,
-          max: 30,
-        },
+      device:
+        "DEV-004",
 
-        humidity: {
-          min: 30,
-          max: 70,
-        },
+      farmerId:
+        FARMER_ID,
 
-        gasLevel: {
-          max: 50,
-        },
+      createdBy:
+        FARMER_ID,
+
+      transporterId:
+        TRANSPORTER_ID,
+
+      warehouseId:
+        WAREHOUSE_ID,
+
+      thresholds:
+        produceThresholds,
+
+      latestTelemetry: {
+        temperature:
+          24.1,
+
+        humidity:
+          54,
+
+        gasLevel:
+          18,
+
+        battery:
+          68,
+
+        timestamp:
+          PAST(2),
       },
 
-      temperature: 25.1,
-      humidity: 55,
+      temperature:
+        24.1,
 
-      gas: "Safe",
+      humidity:
+        54,
 
-      battery: 12,
+      gasLevel:
+        18,
 
-      device: "DEV-003",
+      battery:
+        68,
 
-      progress: 100,
-      stage: 5,
+      progress:
+        100,
 
-      createdAt: PAST(10),
-      updatedAt: PAST(2),
-    },
+      stage:
+        5,
 
-    {
-      shipmentId: "seed-ship-004",
-      trackingId: "AGT-2026-00004",
+      createdAt:
+        PAST(8),
 
-      product: "Dairy Milk",
-      category: "Dairy",
-
-      batchId: "BATCH-004",
-
-      quantity: 200,
-      unit: "litres",
-
-      grade: "Grade A",
-
-      source: "Meerut",
-      sourceDistrict: "Meerut",
-      sourceState: "Uttar Pradesh",
-
-      destination: "Noida",
-      destinationState: "Uttar Pradesh",
-
-      pickupLocation: "Dairy Farm, Meerut",
-
-      receiverOrganization:
-        "Noida Supermarket",
-
-      receiverName: "Neha Gupta",
-      contactPerson: "Neha Gupta",
-
-      phone: "+91 98765 43223",
-
-      departureDate: PAST(1),
-      departureTime: "05:00",
-
-      deliveryDate: PAST(0),
-
-      transportType: "Van",
-
-      vehicleNumber: "UP14-GH-3456",
-
-      driverName: "Ajay Kumar",
-
-      status: SHIPMENT_STATUS.IN_TRANSIT,
-
-      assignedDevice: "DEV-004",
-
-      farmerId: "seeds-farmer-001",
-      createdBy: "seeds-farmer-001",
-
-      transporterId: "seeds-transporter-001",
-
-      thresholds: {
-        temperature: {
-          min: 2,
-          max: 8,
-        },
-
-        humidity: {
-          min: 30,
-          max: 60,
-        },
-
-        gasLevel: {
-          max: 50,
-        },
-      },
-
-      temperature: 6.5,
-      humidity: 42,
-
-      gas: "Safe",
-
-      battery: 92,
-
-      device: "DEV-004",
-
-      progress: 50,
-      stage: 3,
-
-      createdAt: PAST(3),
-      updatedAt: PAST(0),
-    },
-
-    {
-      shipmentId: "seed-ship-005",
-      trackingId: "AGT-2026-00005",
-
-      product: "Mixed Spices",
-      category: "Spices",
-
-      batchId: "BATCH-005",
-
-      quantity: 150,
-      unit: "kg",
-
-      grade: "Grade C",
-
-      source: "Gwalior",
-      sourceDistrict: "Gwalior",
-      sourceState: "Madhya Pradesh",
-
-      destination: "Pune",
-      destinationState: "Maharashtra",
-
-      pickupLocation:
-        "Spice Market, Gwalior",
-
-      receiverOrganization:
-        "Pune Food Corp.",
-
-      receiverName: "Deepak Joshi",
-      contactPerson: "Deepak Joshi",
-
-      phone: "+91 98765 43224",
-
-      departureDate: PAST(6),
-      departureTime: "12:00",
-
-      deliveryDate: PAST(3),
-
-      transportType: "Refrigerated Truck",
-
-      vehicleNumber: "MP14-IJ-7890",
-
-      driverName: "Sanjay Rathore",
-
-      status: SHIPMENT_STATUS.DELIVERED,
-
-      assignedDevice: "DEV-005",
-
-      farmerId: "seeds-farmer-001",
-      createdBy: "seeds-farmer-001",
-
-      transporterId: "seeds-transporter-001",
-
-      thresholds: {
-        temperature: {
-          min: 10,
-          max: 25,
-        },
-
-        humidity: {
-          min: 35,
-          max: 75,
-        },
-
-        gasLevel: {
-          max: 50,
-        },
-      },
-
-      temperature: 20.8,
-      humidity: 58,
-
-      gas: "Safe",
-
-      battery: 45,
-
-      device: "DEV-005",
-
-      progress: 100,
-      stage: 5,
-
-      createdAt: PAST(12),
-      updatedAt: PAST(3),
+      updatedAt:
+        PAST(2),
     },
   ];
 
-  for (const shipment of shipments) {
-    const exists = await docExists(
-      "shipments",
-      "shipmentId",
-      shipment.shipmentId
-    );
+  await upsertMany(
+    "shipments",
+    shipments,
+    "shipmentId"
+  );
 
-    if (exists) {
-      console.log(
-        `  Shipment skipped (exists): ${shipment.trackingId}`
-      );
-
-      continue;
-    }
-
-    await db
-      .collection("shipments")
-      .insertOne(shipment);
-
-    console.log(
-      `  Shipment: ${shipment.trackingId} (${shipment.status})`
-    );
-  }
+  console.log(
+    `Shipments: ${shipments.length} upserted`
+  );
 }
 
 // ============================================================
-// Seed Alerts
+// SEED ALERTS
 // ============================================================
 
 async function seedAlerts() {
   const alerts = [
     {
-      alertId: "DEV-001_HIGH_TEMP_1",
+      alertId:
+        "ALERT-TEMP-001",
 
-      deviceId: "DEV-001",
-      shipmentId: "seed-ship-001",
+      deviceId:
+        "DEV-001",
 
-      type: "HIGH_TEMP",
-      severity: "CRITICAL",
+      shipmentId:
+        SHIPMENTS.TRANSIT,
 
-      value: 31.5,
-      actualValue: 31.5,
+      type:
+        "HIGH_TEMP",
+
+      severity:
+        "CRITICAL",
+
+      value:
+        31.5,
+
+      actualValue:
+        31.5,
 
       threshold: {
-        operator: ">",
-        limit: 28,
-        field: "temperature",
+        operator:
+          ">",
+
+        limit:
+          28,
+
+        field:
+          "temperature",
       },
 
-      status: "OPEN",
+      status:
+        "OPEN",
 
-      acknowledgedAt: null,
-      resolvedAt: null,
+      acknowledgedAt:
+        null,
 
-      timestamp: PAST(6),
-      createdAt: PAST(6),
+      resolvedAt:
+        null,
+
+      timestamp:
+        PAST(0, 6),
+
+      createdAt:
+        PAST(0, 6),
+
+      updatedAt:
+        PAST(0, 6),
     },
 
     {
-      alertId: "DEV-003_LOW_BATTERY_1",
+      alertId:
+        "ALERT-GAS-001",
 
-      deviceId: "DEV-003",
-      shipmentId: "seed-ship-003",
+      deviceId:
+        "DEV-001",
 
-      type: "LOW_BATTERY",
-      severity: "WARNING",
+      shipmentId:
+        SHIPMENTS.TRANSIT,
 
-      value: 12,
-      actualValue: 12,
+      type:
+        "GAS_ALERT",
+
+      severity:
+        "WARNING",
+
+      value:
+        56,
+
+      actualValue:
+        56,
 
       threshold: {
-        operator: "<",
-        limit: 15,
-        field: "battery",
+        operator:
+          ">",
+
+        limit:
+          50,
+
+        field:
+          "gasLevel",
       },
 
-      status: "OPEN",
+      status:
+        "RESOLVED",
 
-      acknowledgedAt: null,
-      resolvedAt: null,
+      acknowledgedAt:
+        PAST(0, 10),
 
-      timestamp: PAST(4),
-      createdAt: PAST(4),
+      resolvedAt:
+        PAST(0, 9),
+
+      timestamp:
+        PAST(0, 12),
+
+      createdAt:
+        PAST(0, 12),
+
+      updatedAt:
+        PAST(0, 9),
     },
 
     {
-      alertId: "DEV-002_HIGH_HUMIDITY_1",
+      alertId:
+        "ALERT-BATTERY-001",
 
-      deviceId: "DEV-002",
-      shipmentId: "seed-ship-002",
+      deviceId:
+        "DEV-006",
 
-      type: "HIGH_HUMIDITY",
-      severity: "WARNING",
+      shipmentId:
+        null,
 
-      value: 82,
-      actualValue: 82,
+      type:
+        "LOW_BATTERY",
+
+      severity:
+        "WARNING",
+
+      value:
+        14,
+
+      actualValue:
+        14,
 
       threshold: {
-        operator: ">",
-        limit: 80,
-        field: "humidity",
+        operator:
+          "<",
+
+        limit:
+          15,
+
+        field:
+          "battery",
       },
 
-      status: "RESOLVED",
+      status:
+        "OPEN",
 
-      acknowledgedAt: PAST(3),
-      resolvedAt: PAST(2),
+      acknowledgedAt:
+        null,
 
-      resolvedBy: "seeds-admin-001",
+      resolvedAt:
+        null,
 
-      timestamp: PAST(5),
-      createdAt: PAST(5),
+      timestamp:
+        PAST(1),
+
+      createdAt:
+        PAST(1),
+
+      updatedAt:
+        PAST(1),
     },
 
     {
-      alertId: "DEV-001_DEVICE_OFFLINE_1",
+      alertId:
+        "ALERT-OFFLINE-001",
 
-      deviceId: "DEV-003",
-      shipmentId: null,
+      deviceId:
+        "DEV-006",
 
-      type: "DEVICE_OFFLINE",
-      severity: "CRITICAL",
+      shipmentId:
+        null,
 
-      value: true,
-      actualValue: true,
+      type:
+        "DEVICE_OFFLINE",
 
-      threshold: {
-        operator: "===",
-        limit: true,
-        field: "deviceOffline",
-      },
+      severity:
+        "CRITICAL",
 
-      status: "OPEN",
+      value:
+        true,
 
-      acknowledgedAt: null,
-      resolvedAt: null,
-
-      timestamp: PAST(1),
-      createdAt: PAST(1),
-    },
-
-    {
-      alertId: "DEV-005_GAS_ALERT_1",
-
-      deviceId: "DEV-005",
-      shipmentId: "seed-ship-005",
-
-      type: "GAS_ALERT",
-      severity: "CRITICAL",
-
-      value: 58,
-      actualValue: 58,
+      actualValue:
+        true,
 
       threshold: {
-        operator: ">",
-        limit: 50,
-        field: "gasLevel",
+        operator:
+          "===",
+
+        limit:
+          true,
+
+        field:
+          "deviceOffline",
       },
 
-      status: "RESOLVED",
+      status:
+        "OPEN",
 
-      acknowledgedAt: PAST(5),
-      resolvedAt: PAST(4),
+      acknowledgedAt:
+        null,
 
-      resolvedBy: "seeds-transporter-001",
+      resolvedAt:
+        null,
 
-      timestamp: PAST(6),
-      createdAt: PAST(6),
+      timestamp:
+        PAST(1),
+
+      createdAt:
+        PAST(1),
+
+      updatedAt:
+        PAST(1),
     },
   ];
 
-  for (const alert of alerts) {
-    const exists = await docExists(
-      "alerts",
-      "alertId",
-      alert.alertId
-    );
-
-    if (exists) {
-      console.log(
-        `  Alert skipped (exists): ${alert.alertId}`
-      );
-
-      continue;
-    }
-
-    await db.collection("alerts").insertOne(alert);
-
-    console.log(
-      `  Alert: ${alert.alertId} (${alert.type}/${alert.status})`
-    );
-  }
-}
-
-// ============================================================
-// Seed Timeline
-// ============================================================
-
-async function seedTimeline() {
-  const events = [
-    // --------------------------------------------------------
-    // Shipment 001
-    // --------------------------------------------------------
-
-    {
-      shipmentId: "seed-ship-001",
-
-      type:
-        TimelineEventType.SHIPMENT_CREATED,
-
-      timestamp: PAST(5),
-
-      actorId: "seeds-farmer-001",
-
-      metadata: {
-        status: "PENDING",
-      },
-    },
-
-    {
-      shipmentId: "seed-ship-001",
-
-      type:
-        TimelineEventType.DEVICE_ASSIGNED,
-
-      timestamp: PAST(4),
-
-      actorId: "seeds-farmer-001",
-
-      metadata: {
-        deviceId: "DEV-001",
-      },
-    },
-
-    {
-      shipmentId: "seed-ship-001",
-
-      type:
-        TimelineEventType.READY_FOR_DISPATCH,
-
-      timestamp: PAST(3),
-
-      actorId: "seeds-farmer-001",
-
-      metadata: {
-        status: "READY_FOR_DISPATCH",
-      },
-    },
-
-    {
-      shipmentId: "seed-ship-001",
-
-      type:
-        TimelineEventType.SHIPMENT_DISPATCHED,
-
-      timestamp: PAST(2),
-
-      actorId: "seeds-transporter-001",
-
-      metadata: {
-        status: "IN_TRANSIT",
-      },
-    },
-
-    {
-      shipmentId: "seed-ship-001",
-
-      type:
-        TimelineEventType.TEMPERATURE_EXCURSION,
-
-      timestamp: PAST(1),
-
-      actorId: "SYSTEM",
-
-      metadata: {
-        deviceId: "DEV-001",
-        temperature: 31.5,
-        threshold: 28,
-        severity: "CRITICAL",
-      },
-    },
-
-    // --------------------------------------------------------
-    // Shipment 002
-    // --------------------------------------------------------
-
-    {
-      shipmentId: "seed-ship-002",
-
-      type:
-        TimelineEventType.SHIPMENT_CREATED,
-
-      timestamp: PAST(7),
-
-      actorId: "seeds-farmer-001",
-
-      metadata: {
-        status: "PENDING",
-      },
-    },
-
-    {
-      shipmentId: "seed-ship-002",
-
-      type:
-        TimelineEventType.DEVICE_ASSIGNED,
-
-      timestamp: PAST(6),
-
-      actorId: "seeds-farmer-001",
-
-      metadata: {
-        deviceId: "DEV-002",
-      },
-    },
-
-    {
-      shipmentId: "seed-ship-002",
-
-      type:
-        TimelineEventType.READY_FOR_DISPATCH,
-
-      timestamp: PAST(5),
-
-      actorId: "seeds-farmer-001",
-
-      metadata: {
-        status: "READY_FOR_DISPATCH",
-      },
-    },
-
-    {
-      shipmentId: "seed-ship-002",
-
-      type:
-        TimelineEventType.SHIPMENT_DISPATCHED,
-
-      timestamp: PAST(4),
-
-      actorId: "seeds-transporter-001",
-
-      metadata: {
-        status: "IN_TRANSIT",
-      },
-    },
-
-    {
-      shipmentId: "seed-ship-002",
-
-      type:
-        TimelineEventType.WAREHOUSE_RECEIVED,
-
-      timestamp: PAST(2),
-
-      actorId: "seeds-warehouse-001",
-
-      metadata: {
-        status: "AT_WAREHOUSE",
-      },
-    },
-
-    // --------------------------------------------------------
-    // Shipment 003
-    // --------------------------------------------------------
-
-    {
-      shipmentId: "seed-ship-003",
-
-      type:
-        TimelineEventType.SHIPMENT_CREATED,
-
-      timestamp: PAST(10),
-
-      actorId: "seeds-farmer-001",
-
-      metadata: {
-        status: "PENDING",
-      },
-    },
-
-    {
-      shipmentId: "seed-ship-003",
-
-      type:
-        TimelineEventType.DEVICE_ASSIGNED,
-
-      timestamp: PAST(9),
-
-      actorId: "seeds-farmer-001",
-
-      metadata: {
-        deviceId: "DEV-003",
-      },
-    },
-
-    {
-      shipmentId: "seed-ship-003",
-
-      type:
-        TimelineEventType.READY_FOR_DISPATCH,
-
-      timestamp: PAST(8),
-
-      actorId: "seeds-farmer-001",
-
-      metadata: {
-        status: "READY_FOR_DISPATCH",
-      },
-    },
-
-    {
-      shipmentId: "seed-ship-003",
-
-      type:
-        TimelineEventType.SHIPMENT_DISPATCHED,
-
-      timestamp: PAST(7),
-
-      actorId: "seeds-transporter-001",
-
-      metadata: {
-        status: "IN_TRANSIT",
-      },
-    },
-
-    {
-      shipmentId: "seed-ship-003",
-
-      type:
-        TimelineEventType.WAREHOUSE_RECEIVED,
-
-      timestamp: PAST(5),
-
-      actorId: "seeds-warehouse-001",
-
-      metadata: {
-        status: "AT_WAREHOUSE",
-      },
-    },
-
-    {
-      shipmentId: "seed-ship-003",
-
-      type:
-        TimelineEventType.DELIVERY_COMPLETED,
-
-      timestamp: PAST(2),
-
-      actorId: "seeds-warehouse-001",
-
-      metadata: {
-        status: "DELIVERED",
-      },
-    },
-
-    // --------------------------------------------------------
-    // Shipment 004
-    // --------------------------------------------------------
-
-    {
-      shipmentId: "seed-ship-004",
-
-      type:
-        TimelineEventType.SHIPMENT_CREATED,
-
-      timestamp: PAST(3),
-
-      actorId: "seeds-farmer-001",
-
-      metadata: {
-        status: "PENDING",
-      },
-    },
-
-    {
-      shipmentId: "seed-ship-004",
-
-      type:
-        TimelineEventType.DEVICE_ASSIGNED,
-
-      timestamp: PAST(2),
-
-      actorId: "seeds-farmer-001",
-
-      metadata: {
-        deviceId: "DEV-004",
-      },
-    },
-
-    {
-      shipmentId: "seed-ship-004",
-
-      type:
-        TimelineEventType.SHIPMENT_DISPATCHED,
-
-      timestamp: PAST(1),
-
-      actorId: "seeds-transporter-001",
-
-      metadata: {
-        status: "IN_TRANSIT",
-      },
-    },
-
-    // --------------------------------------------------------
-    // Shipment 005
-    // --------------------------------------------------------
-
-    {
-      shipmentId: "seed-ship-005",
-
-      type:
-        TimelineEventType.SHIPMENT_CREATED,
-
-      timestamp: PAST(12),
-
-      actorId: "seeds-farmer-001",
-
-      metadata: {
-        status: "PENDING",
-      },
-    },
-
-    {
-      shipmentId: "seed-ship-005",
-
-      type:
-        TimelineEventType.DEVICE_ASSIGNED,
-
-      timestamp: PAST(11),
-
-      actorId: "seeds-farmer-001",
-
-      metadata: {
-        deviceId: "DEV-005",
-      },
-    },
-
-    {
-      shipmentId: "seed-ship-005",
-
-      type:
-        TimelineEventType.READY_FOR_DISPATCH,
-
-      timestamp: PAST(10),
-
-      actorId: "seeds-farmer-001",
-
-      metadata: {
-        status: "READY_FOR_DISPATCH",
-      },
-    },
-
-    {
-      shipmentId: "seed-ship-005",
-
-      type:
-        TimelineEventType.SHIPMENT_DISPATCHED,
-
-      timestamp: PAST(9),
-
-      actorId: "seeds-transporter-001",
-
-      metadata: {
-        status: "IN_TRANSIT",
-      },
-    },
-
-    {
-      shipmentId: "seed-ship-005",
-
-      type:
-        TimelineEventType.WAREHOUSE_RECEIVED,
-
-      timestamp: PAST(6),
-
-      actorId: "seeds-warehouse-001",
-
-      metadata: {
-        status: "AT_WAREHOUSE",
-      },
-    },
-
-    {
-      shipmentId: "seed-ship-005",
-
-      type:
-        TimelineEventType.DELIVERY_COMPLETED,
-
-      timestamp: PAST(3),
-
-      actorId: "seeds-warehouse-001",
-
-      metadata: {
-        status: "DELIVERED",
-      },
-    },
-  ];
-
-  let count = 0;
-
-  for (const event of events) {
-    // Check using meaningful event fields instead
-    // of randomUUID so repeated seed runs do not
-    // create duplicate timeline entries.
-
-    const existing =
-      await db.collection("timeline").findOne({
-        shipmentId: event.shipmentId,
-        type: event.type,
-        timestamp: event.timestamp,
-        actorId: event.actorId,
-      });
-
-    if (existing) {
-      continue;
-    }
-
-    const eventId = randomUUID();
-
-    await db.collection("timeline").insertOne({
-      ...event,
-      eventId,
-    });
-
-    count++;
-  }
+  await upsertMany(
+    "alerts",
+    alerts,
+    "alertId"
+  );
 
   console.log(
-    `  Timeline events: ${count} added`
+    `Alerts: ${alerts.length} upserted`
   );
 }
 
 // ============================================================
-// Main Seed
+// TIMELINE HELPER
+// ============================================================
+
+function makeTimelineEvent({
+  shipmentId,
+  type,
+  timestamp,
+  actorId,
+  metadata = {},
+}) {
+  return {
+    eventId:
+      randomUUID(),
+
+    shipmentId,
+
+    type,
+
+    timestamp,
+
+    actorId,
+
+    metadata,
+  };
+}
+
+// ============================================================
+// SEED TIMELINE
+// ============================================================
+
+async function seedTimeline(
+  users
+) {
+  const FARMER_ID =
+    users.farmer.uid;
+
+  const TRANSPORTER_ID =
+    users.transporter.uid;
+
+  const WAREHOUSE_ID =
+    users.warehouse.uid;
+
+  // Remove only timeline belonging to
+  // our six demo shipments before rebuilding it.
+
+  await db
+    .collection("timeline")
+    .deleteMany({
+      shipmentId: {
+        $in:
+          Object.values(
+            SHIPMENTS
+          ),
+      },
+    });
+
+  const events = [
+    // --------------------------------------------------------
+    // 001
+    // --------------------------------------------------------
+
+    makeTimelineEvent({
+      shipmentId:
+        SHIPMENTS.PENDING,
+
+      type:
+        TimelineEventType
+          .SHIPMENT_CREATED,
+
+      timestamp:
+        PAST(1),
+
+      actorId:
+        FARMER_ID,
+
+      metadata: {
+        status:
+          SHIPMENT_STATUS.PENDING,
+      },
+    }),
+
+    // --------------------------------------------------------
+    // 002
+    // --------------------------------------------------------
+
+    makeTimelineEvent({
+      shipmentId:
+        SHIPMENTS.DEVICE_ASSIGNED,
+
+      type:
+        TimelineEventType
+          .SHIPMENT_CREATED,
+
+      timestamp:
+        PAST(2),
+
+      actorId:
+        FARMER_ID,
+
+      metadata: {
+        status:
+          SHIPMENT_STATUS.PENDING,
+      },
+    }),
+
+    makeTimelineEvent({
+      shipmentId:
+        SHIPMENTS.DEVICE_ASSIGNED,
+
+      type:
+        TimelineEventType
+          .DEVICE_ASSIGNED,
+
+      timestamp:
+        PAST(1),
+
+      actorId:
+        FARMER_ID,
+
+      metadata: {
+        deviceId:
+          "DEV-002",
+
+        status:
+          SHIPMENT_STATUS.DEVICE_ASSIGNED,
+      },
+    }),
+
+    // --------------------------------------------------------
+    // 003
+    // --------------------------------------------------------
+
+    makeTimelineEvent({
+      shipmentId:
+        SHIPMENTS.READY,
+
+      type:
+        TimelineEventType
+          .SHIPMENT_CREATED,
+
+      timestamp:
+        PAST(3),
+
+      actorId:
+        FARMER_ID,
+
+      metadata: {
+        status:
+          SHIPMENT_STATUS.PENDING,
+      },
+    }),
+
+    makeTimelineEvent({
+      shipmentId:
+        SHIPMENTS.READY,
+
+      type:
+        TimelineEventType
+          .DEVICE_ASSIGNED,
+
+      timestamp:
+        PAST(2, 12),
+
+      actorId:
+        FARMER_ID,
+
+      metadata: {
+        deviceId:
+          "DEV-003",
+      },
+    }),
+
+    makeTimelineEvent({
+      shipmentId:
+        SHIPMENTS.READY,
+
+      type:
+        TimelineEventType
+          .TRANSPORTER_ASSIGNED,
+
+      timestamp:
+        PAST(2),
+
+      actorId:
+        FARMER_ID,
+
+      metadata: {
+        transporterId:
+          TRANSPORTER_ID,
+      },
+    }),
+
+    makeTimelineEvent({
+      shipmentId:
+        SHIPMENTS.READY,
+
+      type:
+        TimelineEventType
+          .READY_FOR_DISPATCH,
+
+      timestamp:
+        PAST(1),
+
+      actorId:
+        FARMER_ID,
+
+      metadata: {
+        status:
+          SHIPMENT_STATUS.READY_FOR_DISPATCH,
+      },
+    }),
+
+    // --------------------------------------------------------
+    // 004
+    // --------------------------------------------------------
+
+    makeTimelineEvent({
+      shipmentId:
+        SHIPMENTS.TRANSIT,
+
+      type:
+        TimelineEventType
+          .SHIPMENT_CREATED,
+
+      timestamp:
+        PAST(4),
+
+      actorId:
+        FARMER_ID,
+
+      metadata: {
+        status:
+          SHIPMENT_STATUS.PENDING,
+      },
+    }),
+
+    makeTimelineEvent({
+      shipmentId:
+        SHIPMENTS.TRANSIT,
+
+      type:
+        TimelineEventType
+          .DEVICE_ASSIGNED,
+
+      timestamp:
+        PAST(3, 12),
+
+      actorId:
+        FARMER_ID,
+
+      metadata: {
+        deviceId:
+          "DEV-001",
+      },
+    }),
+
+    makeTimelineEvent({
+      shipmentId:
+        SHIPMENTS.TRANSIT,
+
+      type:
+        TimelineEventType
+          .TRANSPORTER_ASSIGNED,
+
+      timestamp:
+        PAST(3),
+
+      actorId:
+        FARMER_ID,
+
+      metadata: {
+        transporterId:
+          TRANSPORTER_ID,
+      },
+    }),
+
+    makeTimelineEvent({
+      shipmentId:
+        SHIPMENTS.TRANSIT,
+
+      type:
+        TimelineEventType
+          .READY_FOR_DISPATCH,
+
+      timestamp:
+        PAST(2),
+
+      actorId:
+        FARMER_ID,
+
+      metadata: {
+        status:
+          SHIPMENT_STATUS.READY_FOR_DISPATCH,
+      },
+    }),
+
+    makeTimelineEvent({
+      shipmentId:
+        SHIPMENTS.TRANSIT,
+
+      type:
+        TimelineEventType
+          .SHIPMENT_DISPATCHED,
+
+      timestamp:
+        PAST(1),
+
+      actorId:
+        TRANSPORTER_ID,
+
+      metadata: {
+        status:
+          SHIPMENT_STATUS.IN_TRANSIT,
+      },
+    }),
+
+    makeTimelineEvent({
+      shipmentId:
+        SHIPMENTS.TRANSIT,
+
+      type:
+        TimelineEventType
+          .TEMPERATURE_EXCURSION,
+
+      timestamp:
+        PAST(0, 6),
+
+      actorId:
+        "SYSTEM",
+
+      metadata: {
+        deviceId:
+          "DEV-001",
+
+        temperature:
+          31.5,
+
+        threshold:
+          28,
+
+        severity:
+          "CRITICAL",
+      },
+    }),
+
+    // --------------------------------------------------------
+    // 005
+    // --------------------------------------------------------
+
+    makeTimelineEvent({
+      shipmentId:
+        SHIPMENTS.WAREHOUSE,
+
+      type:
+        TimelineEventType
+          .SHIPMENT_CREATED,
+
+      timestamp:
+        PAST(5),
+
+      actorId:
+        FARMER_ID,
+
+      metadata: {
+        status:
+          SHIPMENT_STATUS.PENDING,
+      },
+    }),
+
+    makeTimelineEvent({
+      shipmentId:
+        SHIPMENTS.WAREHOUSE,
+
+      type:
+        TimelineEventType
+          .DEVICE_ASSIGNED,
+
+      timestamp:
+        PAST(4, 12),
+
+      actorId:
+        FARMER_ID,
+
+      metadata: {
+        deviceId:
+          "DEV-005",
+      },
+    }),
+
+    makeTimelineEvent({
+      shipmentId:
+        SHIPMENTS.WAREHOUSE,
+
+      type:
+        TimelineEventType
+          .TRANSPORTER_ASSIGNED,
+
+      timestamp:
+        PAST(4),
+
+      actorId:
+        FARMER_ID,
+
+      metadata: {
+        transporterId:
+          TRANSPORTER_ID,
+      },
+    }),
+
+    makeTimelineEvent({
+      shipmentId:
+        SHIPMENTS.WAREHOUSE,
+
+      type:
+        TimelineEventType
+          .WAREHOUSE_ASSIGNED,
+
+      timestamp:
+        PAST(3, 12),
+
+      actorId:
+        FARMER_ID,
+
+      metadata: {
+        warehouseId:
+          WAREHOUSE_ID,
+      },
+    }),
+
+    makeTimelineEvent({
+      shipmentId:
+        SHIPMENTS.WAREHOUSE,
+
+      type:
+        TimelineEventType
+          .READY_FOR_DISPATCH,
+
+      timestamp:
+        PAST(3),
+
+      actorId:
+        FARMER_ID,
+
+      metadata: {
+        status:
+          SHIPMENT_STATUS.READY_FOR_DISPATCH,
+      },
+    }),
+
+    makeTimelineEvent({
+      shipmentId:
+        SHIPMENTS.WAREHOUSE,
+
+      type:
+        TimelineEventType
+          .SHIPMENT_DISPATCHED,
+
+      timestamp:
+        PAST(2),
+
+      actorId:
+        TRANSPORTER_ID,
+
+      metadata: {
+        status:
+          SHIPMENT_STATUS.IN_TRANSIT,
+      },
+    }),
+
+    makeTimelineEvent({
+      shipmentId:
+        SHIPMENTS.WAREHOUSE,
+
+      type:
+        TimelineEventType
+          .WAREHOUSE_RECEIVED,
+
+      timestamp:
+        PAST(1),
+
+      actorId:
+        WAREHOUSE_ID,
+
+      metadata: {
+        status:
+          SHIPMENT_STATUS.AT_WAREHOUSE,
+      },
+    }),
+
+    // --------------------------------------------------------
+    // 006
+    // --------------------------------------------------------
+
+    makeTimelineEvent({
+      shipmentId:
+        SHIPMENTS.DELIVERED,
+
+      type:
+        TimelineEventType
+          .SHIPMENT_CREATED,
+
+      timestamp:
+        PAST(8),
+
+      actorId:
+        FARMER_ID,
+
+      metadata: {
+        status:
+          SHIPMENT_STATUS.PENDING,
+      },
+    }),
+
+    makeTimelineEvent({
+      shipmentId:
+        SHIPMENTS.DELIVERED,
+
+      type:
+        TimelineEventType
+          .DEVICE_ASSIGNED,
+
+      timestamp:
+        PAST(7, 12),
+
+      actorId:
+        FARMER_ID,
+
+      metadata: {
+        deviceId:
+          "DEV-004",
+      },
+    }),
+
+    makeTimelineEvent({
+      shipmentId:
+        SHIPMENTS.DELIVERED,
+
+      type:
+        TimelineEventType
+          .TRANSPORTER_ASSIGNED,
+
+      timestamp:
+        PAST(7),
+
+      actorId:
+        FARMER_ID,
+
+      metadata: {
+        transporterId:
+          TRANSPORTER_ID,
+      },
+    }),
+
+    makeTimelineEvent({
+      shipmentId:
+        SHIPMENTS.DELIVERED,
+
+      type:
+        TimelineEventType
+          .WAREHOUSE_ASSIGNED,
+
+      timestamp:
+        PAST(6, 12),
+
+      actorId:
+        FARMER_ID,
+
+      metadata: {
+        warehouseId:
+          WAREHOUSE_ID,
+      },
+    }),
+
+    makeTimelineEvent({
+      shipmentId:
+        SHIPMENTS.DELIVERED,
+
+      type:
+        TimelineEventType
+          .READY_FOR_DISPATCH,
+
+      timestamp:
+        PAST(6),
+
+      actorId:
+        FARMER_ID,
+
+      metadata: {
+        status:
+          SHIPMENT_STATUS.READY_FOR_DISPATCH,
+      },
+    }),
+
+    makeTimelineEvent({
+      shipmentId:
+        SHIPMENTS.DELIVERED,
+
+      type:
+        TimelineEventType
+          .SHIPMENT_DISPATCHED,
+
+      timestamp:
+        PAST(5),
+
+      actorId:
+        TRANSPORTER_ID,
+
+      metadata: {
+        status:
+          SHIPMENT_STATUS.IN_TRANSIT,
+      },
+    }),
+
+    makeTimelineEvent({
+      shipmentId:
+        SHIPMENTS.DELIVERED,
+
+      type:
+        TimelineEventType
+          .WAREHOUSE_RECEIVED,
+
+      timestamp:
+        PAST(3),
+
+      actorId:
+        WAREHOUSE_ID,
+
+      metadata: {
+        status:
+          SHIPMENT_STATUS.AT_WAREHOUSE,
+      },
+    }),
+
+    makeTimelineEvent({
+      shipmentId:
+        SHIPMENTS.DELIVERED,
+
+      type:
+        TimelineEventType
+          .DELIVERY_COMPLETED,
+
+      timestamp:
+        PAST(2),
+
+      actorId:
+        WAREHOUSE_ID,
+
+      metadata: {
+        status:
+          SHIPMENT_STATUS.DELIVERED,
+      },
+    }),
+  ];
+
+  if (events.length) {
+    await db
+      .collection("timeline")
+      .insertMany(events);
+  }
+
+  console.log(
+    `Timeline: ${events.length} events created`
+  );
+}
+
+// ============================================================
+// REMOVE OLD FAKE SEED DATA
+// ============================================================
+
+async function removeLegacySeedData() {
+  const oldIds = [
+    "seed-ship-001",
+    "seed-ship-002",
+    "seed-ship-003",
+    "seed-ship-004",
+    "seed-ship-005",
+  ];
+
+  await db
+    .collection("shipments")
+    .deleteMany({
+      shipmentId: {
+        $in:
+          oldIds,
+      },
+    });
+
+  await db
+    .collection("timeline")
+    .deleteMany({
+      shipmentId: {
+        $in:
+          oldIds,
+      },
+    });
+
+  await db
+    .collection("alerts")
+    .deleteMany({
+      shipmentId: {
+        $in:
+          oldIds,
+      },
+    });
+
+  console.log(
+    "Old fake seed shipments cleaned."
+  );
+}
+
+// ============================================================
+// VERIFY EVERYTHING
+// ============================================================
+
+async function verifySeed(
+  users
+) {
+  const farmerShipments =
+    await db
+      .collection("shipments")
+      .find({
+        farmerId:
+          users.farmer.uid,
+      })
+      .toArray();
+
+  const transporterShipments =
+    await db
+      .collection("shipments")
+      .find({
+        transporterId:
+          users.transporter.uid,
+      })
+      .toArray();
+
+  const warehouseShipments =
+    await db
+      .collection("shipments")
+      .find({
+        warehouseId:
+          users.warehouse.uid,
+      })
+      .toArray();
+
+  console.log(
+    "\n======================================"
+  );
+
+  console.log(
+    "AGRITRACE ROLE VERIFICATION"
+  );
+
+  console.log(
+    "======================================"
+  );
+
+  console.log(
+    `\nFarmer: ${users.farmer.email}`
+  );
+
+  console.log(
+    `UID: ${users.farmer.uid}`
+  );
+
+  console.log(
+    `Shipments: ${farmerShipments.length}`
+  );
+
+  console.log(
+    `\nTransporter: ${users.transporter.email}`
+  );
+
+  console.log(
+    `UID: ${users.transporter.uid}`
+  );
+
+  console.log(
+    `Shipments: ${transporterShipments.length}`
+  );
+
+  console.log(
+    `\nWarehouse: ${users.warehouse.email}`
+  );
+
+  console.log(
+    `UID: ${users.warehouse.uid}`
+  );
+
+  console.log(
+    `Shipments: ${warehouseShipments.length}`
+  );
+
+  console.log(
+    "\n======================================"
+  );
+}
+
+// ============================================================
+// MAIN
 // ============================================================
 
 async function seedDatabase() {
   console.log(
-    "\nSeeding AgriTrace MongoDB demo data...\n"
+    "\n======================================"
   );
+
+  console.log(
+    "       AGRITRACE DATABASE SEED"
+  );
+
+  console.log(
+    "======================================\n"
+  );
+
+  // ----------------------------------------------------------
+  // STEP 1
+  // Find REAL Firebase-authenticated users from MongoDB
+  // ----------------------------------------------------------
+
+  const users =
+    await loadUsers();
+
+  // ----------------------------------------------------------
+  // STEP 2
+  // Database indexes
+  // ----------------------------------------------------------
 
   await createIndexes();
 
-  console.log("Users:");
-  await seedUsers();
+  // ----------------------------------------------------------
+  // STEP 3
+  // Remove previous fake seed shipments
+  // ----------------------------------------------------------
 
-  console.log();
+  await removeLegacySeedData();
 
-  console.log("Devices:");
+  // ----------------------------------------------------------
+  // STEP 4
+  // Devices
+  // ----------------------------------------------------------
+
   await seedDevices();
 
-  console.log();
+  // ----------------------------------------------------------
+  // STEP 5
+  // Shipments linked using REAL user UIDs
+  // ----------------------------------------------------------
 
-  console.log("Shipments:");
-  await seedShipments();
+  await seedShipments(
+    users
+  );
 
-  console.log();
+  // ----------------------------------------------------------
+  // STEP 6
+  // Alerts
+  // ----------------------------------------------------------
 
-  console.log("Alerts:");
   await seedAlerts();
 
-  console.log();
+  // ----------------------------------------------------------
+  // STEP 7
+  // Timeline linked using REAL user UIDs
+  // ----------------------------------------------------------
 
-  console.log("Timeline:");
-  await seedTimeline();
+  await seedTimeline(
+    users
+  );
 
-  console.log();
+  // ----------------------------------------------------------
+  // STEP 8
+  // Verify relationships
+  // ----------------------------------------------------------
+
+  await verifySeed(
+    users
+  );
 
   console.log(
-    "Seed complete! MongoDB data ready for demo."
+    "\nAgriTrace seed completed successfully.\n"
   );
 }
 
 // ============================================================
-// MongoDB Connection
+// CONNECT DATABASE
 // ============================================================
 
 async function run() {
   try {
-    console.log("Connecting to MongoDB...");
+    console.log(
+      "Connecting to MongoDB..."
+    );
 
     await client.connect();
 
-    db = client.db(MONGO_DB);
+    db =
+      client.db(
+        MONGO_DB
+      );
 
     await db.command({
       ping: 1,
     });
 
     console.log(
-      `MongoDB connected successfully: ${MONGO_DB}`
+      `MongoDB connected: ${MONGO_DB}`
     );
 
     await seedDatabase();
+
   } catch (error) {
     console.error(
-      "\nMongoDB seed failed:",
+      "\nAgriTrace seed failed:"
+    );
+
+    console.error(
+      error.message
+    );
+
+    console.error(
       error
     );
 
-    process.exitCode = 1;
+    process.exitCode =
+      1;
+
   } finally {
     try {
       await client.close();
 
       console.log(
-        "\nMongoDB connection closed."
+        "MongoDB connection closed."
       );
+
     } catch (error) {
       console.error(
         "Error closing MongoDB:",
@@ -1405,5 +2671,9 @@ async function run() {
     }
   }
 }
+
+// ============================================================
+// START
+// ============================================================
 
 run();

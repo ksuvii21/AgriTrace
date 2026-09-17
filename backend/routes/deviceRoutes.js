@@ -13,7 +13,7 @@ router.post(
   requireRole(Role.FARMER, Role.ADMIN),
   async (req, res) => {
   try {
-    const device = await registerDevice(req.body);
+    const device = await registerDevice(req.body, req.user);
     return success(res, device, "Device registered successfully");
   } catch (err) {
     console.error("Register device error:", err);

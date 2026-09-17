@@ -4,14 +4,14 @@ import { buildDeviceAccessFilter, canAccessDevice, getAccessibleShipmentIds } fr
 import { buildShipmentAccessFilter, canAccessShipment } from "../core/accessControl.js";
 import { Role } from "../core/roles.js";
 
-export async function registerDevice(data) {
+export async function registerDevice(data, user) {
   const devices = getCollection("devices");
   const deviceData = {
     deviceId: data.deviceId,
     serialNumber: data.serialNumber || data.deviceId,
     location: data.location || null,
     type: data.type || "Sensor",
-    ownerId: data.ownerId || null,
+    ownerId: user.uid,
     status: "OFFLINE",
     currentShipmentId: null,
     battery: null,

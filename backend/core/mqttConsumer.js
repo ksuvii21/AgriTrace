@@ -1,34 +1,18 @@
 import mqtt from "mqtt";
 
-import {
-  getTelemetryCollection,
-  getCollection,
-} from "./mongo.js";
+import {getTelemetryCollection, getCollection,} from "./mongo.js";
 
-import {
-  normalizeTelemetry,
-  validateReading,
-} from "../models/telemetry.js";
+import {normalizeTelemetry, validateReading,} from "../models/telemetry.js";
 
-import {
-  parseTelemetryTopic,
-} from "../models/mqttTopic.js";
+import {parseTelemetryTopic,} from "../models/mqttTopic.js";
 
-import {
-  evaluateAlerts,
-  resolveSystemAlert,
-} from "../services/alertService.js";
+import {evaluateAlerts, resolveSystemAlert,} from "../services/alertService.js";
 
-import {
-  broadcastToShipment,
-  broadcastToAll,
-} from "./websocket.js";
+import {broadcastToShipment,broadcastToAll,} from "./websocket.js";
 
 import { config } from "./config.js";
 
-import {
-  generateTelemetryHash,
-} from "../services/integrityService.js";
+import {generateTelemetryHash,} from "../services/integrityService.js";
 
 
 let client = null;

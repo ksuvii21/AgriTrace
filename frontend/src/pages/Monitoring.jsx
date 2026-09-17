@@ -1,9 +1,18 @@
 import React, { useEffect, useState } from "react";
-import { FaTemperatureHalf, FaDroplet, FaLeaf, FaBatteryThreeQuarters } from "react-icons/fa6";
+import {
+  FaTemperatureHalf,
+  FaDroplet,
+  FaLeaf,
+  FaBatteryThreeQuarters,
+} from "react-icons/fa6";
 
 import { listShipments } from "../api/shipmentApi";
 import { listDevices } from "../api/deviceApi";
-import { getLatestDeviceTelemetry, getDeviceTelemetryHistory } from "../api/telemetryApi";
+import {
+  getLatestDeviceTelemetry,
+  getDeviceTelemetryHistory,
+} from "../api/telemetryApi";
+
 import websocketService from "../services/websocketService";
 
 import SensorCard from "../components/common/SensorCard";
@@ -11,6 +20,7 @@ import LoadingSpinner from "../components/common/LoadingSpinner";
 import EmptyState from "../components/common/EmptyState";
 
 const HISTORY_LENGTH = 20;
+const GAS_WARNING_THRESHOLD = 2000;
 
 function Monitoring() {
   const [shipmentId, setShipmentId] = useState("");
@@ -18,191 +28,688 @@ function Monitoring() {
 
   const [shipments, setShipments] = useState([]);
   const [devices, setDevices] = useState([]);
+
   const [telemetry, setTelemetry] = useState(null);
-  const [history, setHistory] = useState({ temperature: [], humidity: [], battery: [] });
+
+  const [history, setHistory] = useState({
+    temperature: [],
+    humidity: [],
+    battery: [],
+  });
 
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(20);
 
   const [loading, setLoading] = useState(true);
+  const [telemetryLoading, setTelemetryLoading] = useState(false);
   const [error, setError] = useState(null);
+
+  // --------------------------------------------------
+  // LOAD SHIPMENTS + DEVICES
+  // --------------------------------------------------
 
   useEffect(() => {
     const fetchInitial = async () => {
       try {
-        const [shipRes, devRes] = await Promise.all([listShipments(), listDevices()]);
-        setShipments(shipRes ?? []);
-        setDevices(devRes ?? []);
-        if (shipRes && shipRes.length > 0 && !shipmentId) {
-          setShipmentId(shipRes[0].shipmentId || shipRes[0].id || "");
+        setError(null);
+
+        const [shipRes, devRes] = await Promise.all([
+          listShipments(),
+          listDevices(),
+        ]);
+
+        const shipmentList = Array.isArray(shipRes) ? shipRes : [];
+        const deviceList = Array.isArray(devRes) ? devRes : [];
+
+        setShipments(shipmentList);
+        setDevices(deviceList);
+
+        if (shipmentList.length > 0) {
+          setShipmentId(
+            shipmentList[0].shipmentId ||
+            shipmentList[0].id ||
+            ""
+          );
         }
+
+        // Select first available device.
+        // AGRITRACE-001 should appear here once your backend
+        // allows the logged-in user to access the device.
+
+        if (deviceList.length > 0) {
+          setSelectedDeviceId(
+            deviceList[0].deviceId ||
+            deviceList[0].id ||
+            ""
+          );
+        }
+
       } catch (err) {
         console.error(err);
-        setError(err.message || "Failed to load shipments/devices");
+
+        setError(
+          err.message ||
+          "Failed to load shipments/devices"
+        );
+
       } finally {
         setLoading(false);
       }
     };
+
     fetchInitial();
   }, []);
 
+  // --------------------------------------------------
+  // LOAD REAL TELEMETRY FROM BACKEND
+  // --------------------------------------------------
+
   useEffect(() => {
     const loadTelemetry = async () => {
-      if (!shipmentId) return;
-      const shipment = shipments.find(s => (s.shipmentId || s.id) === shipmentId);
-      const deviceId = shipment?.assignedDevice || shipment?.device || "";
-      setSelectedDeviceId(deviceId);
-      setTelemetry(null);
-      setHistory({ temperature: [], humidity: [], battery: [] });
-      if (!deviceId) {
+      if (!selectedDeviceId) {
+        setTelemetry(null);
+
+        setHistory({
+          temperature: [],
+          humidity: [],
+          battery: [],
+        });
+
         return;
       }
+
       try {
-        const [latestRes, historyRes] = await Promise.all([
-          getLatestDeviceTelemetry(deviceId),
-          getDeviceTelemetryHistory(deviceId, { limit, page })
-        ]);
-        setTelemetry(latestRes ?? null);
-        const histData = Array.isArray(historyRes) ? historyRes : [];
+        setTelemetryLoading(true);
+        setError(null);
+
+        console.log(
+          "[Monitoring] Loading device:",
+          selectedDeviceId
+        );
+
+        const [latestRes, historyRes] =
+          await Promise.all([
+            getLatestDeviceTelemetry(
+              selectedDeviceId
+            ),
+
+            getDeviceTelemetryHistory(
+              selectedDeviceId,
+              {
+                limit,
+                page,
+              }
+            ),
+          ]);
+
+        console.log(
+          "[Monitoring] Latest telemetry:",
+          latestRes
+        );
+
+        console.log(
+          "[Monitoring] History:",
+          historyRes
+        );
+
+        setTelemetry(
+          latestRes ?? null
+        );
+
+        const histData =
+          Array.isArray(historyRes)
+            ? historyRes
+            : [];
+
         setHistory({
-          temperature: histData.map(d => d.temperature),
-          humidity: histData.map(d => d.humidity),
-          battery: histData.map(d => d.battery)
+          temperature: histData
+            .map(d => d.temperature)
+            .filter(v => v != null),
+
+          humidity: histData
+            .map(d => d.humidity)
+            .filter(v => v != null),
+
+          battery: histData
+            .map(d => d.battery)
+            .filter(v => v != null),
         });
+
       } catch (err) {
-        console.error(err);
-        setError(err.message || "Failed to load telemetry");
+        console.error(
+          "[Monitoring] Telemetry error:",
+          err
+        );
+
+        setTelemetry(null);
+
+        setError(
+          err.message ||
+          "Failed to load telemetry"
+        );
+
+      } finally {
+        setTelemetryLoading(false);
       }
     };
+
     loadTelemetry();
-  }, [shipmentId, shipments, page, limit]);
+
+  }, [
+    selectedDeviceId,
+    page,
+    limit,
+  ]);
+
+  // --------------------------------------------------
+  // WEBSOCKET
+  // --------------------------------------------------
+  //
+  // Your current backend broadcasts live telemetry
+  // by SHIPMENT subscription.
+  //
+  // Therefore this becomes fully active once
+  // AGRITRACE-001 is assigned to a shipment.
+  // --------------------------------------------------
 
   useEffect(() => {
-    if (!selectedDeviceId || !shipmentId) return;
-    const wsUrl = import.meta.env.VITE_WS_URL;
-    if (!wsUrl) return;
-    websocketService.connect(wsUrl);
-    const unsubscribe = websocketService.on("telemetry.updated", payload => {
-      if (payload.deviceId === selectedDeviceId && payload.shipmentId === shipmentId) {
-        setTelemetry(payload);
-        setHistory(prev => ({
-          temperature: [...prev.temperature.slice(-HISTORY_LENGTH + 1), payload.temperature],
-          humidity: [...prev.humidity.slice(-HISTORY_LENGTH + 1), payload.humidity],
-          battery: [...prev.battery.slice(-HISTORY_LENGTH + 1), payload.battery]
-        }));
-      }
-    });
+    if (
+      !selectedDeviceId ||
+      !shipmentId
+    ) {
+      return;
+    }
+
+    const wsUrl =
+      import.meta.env.VITE_WS_URL;
+
+    if (!wsUrl) {
+      return;
+    }
+
+    websocketService.connect(
+      wsUrl
+    );
+
+    // Subscribe to selected shipment if your
+    // websocketService supports send/subscribe.
+
+    if (
+      typeof websocketService.subscribeToShipment
+      === "function"
+    ) {
+      websocketService.subscribeToShipment(
+        shipmentId
+      );
+    }
+
+    const unsubscribe =
+      websocketService.on(
+        "telemetry.updated",
+        payload => {
+
+          console.log(
+            "[WebSocket] Telemetry:",
+            payload
+          );
+
+          if (
+            payload.deviceId ===
+            selectedDeviceId
+          ) {
+
+            setTelemetry(
+              payload
+            );
+
+            setHistory(prev => ({
+              temperature: [
+                ...prev.temperature.slice(
+                  -HISTORY_LENGTH + 1
+                ),
+                payload.temperature,
+              ],
+
+              humidity: [
+                ...prev.humidity.slice(
+                  -HISTORY_LENGTH + 1
+                ),
+                payload.humidity,
+              ],
+
+              battery: [
+                ...prev.battery.slice(
+                  -HISTORY_LENGTH + 1
+                ),
+                payload.battery,
+              ],
+            }));
+          }
+        }
+      );
+
     return () => {
       unsubscribe();
+
+      if (
+        typeof websocketService.unsubscribeFromShipment
+        === "function"
+      ) {
+        websocketService.unsubscribeFromShipment(
+          shipmentId
+        );
+      }
     };
-  }, [selectedDeviceId, shipmentId]);
 
-  if (loading) return <LoadingSpinner />;
-  if (error) return <EmptyState message={error} />;
+  }, [
+    selectedDeviceId,
+    shipmentId,
+  ]);
 
-  const hasDevice = !!selectedDeviceId;
-  const hasTelemetry = telemetry != null;
-  const unsafe = hasTelemetry && (telemetry.temperature > 28 || telemetry.humidity > 80 || telemetry.gasLevel !== "Safe");
+  // --------------------------------------------------
+  // LOADING / ERROR
+  // --------------------------------------------------
 
-  const handlePrevPage = () => setPage(p => Math.max(p - 1, 1));
-  const handleNextPage = () => setPage(p => p + 1);
+  if (loading) {
+    return <LoadingSpinner />;
+  }
+
+  if (error) {
+    return (
+      <EmptyState
+        message={error}
+      />
+    );
+  }
+
+  // --------------------------------------------------
+  // STATUS
+  // --------------------------------------------------
+
+  const hasDevice =
+    !!selectedDeviceId;
+
+  const hasTelemetry =
+    telemetry != null;
+
+  const temperatureWarning =
+    hasTelemetry &&
+    telemetry.temperature > 28;
+
+  const humidityWarning =
+    hasTelemetry &&
+    telemetry.humidity > 80;
+
+  const gasWarning =
+    hasTelemetry &&
+    Number(telemetry.gasLevel) >=
+    GAS_WARNING_THRESHOLD;
+
+  const batteryWarning =
+    hasTelemetry &&
+    telemetry.battery < 25;
+
+  const unsafe =
+    temperatureWarning ||
+    humidityWarning ||
+    gasWarning;
 
   let statusMessage;
   let statusClass;
+
   if (!hasDevice) {
-    statusMessage = "No monitoring device assigned";
-    statusClass = "idle";
+
+    statusMessage =
+      "No monitoring device selected";
+
+    statusClass =
+      "idle";
+
+  } else if (telemetryLoading) {
+
+    statusMessage =
+      "Loading telemetry...";
+
+    statusClass =
+      "idle";
+
   } else if (!hasTelemetry) {
-    statusMessage = "Waiting for first telemetry reading...";
-    statusClass = "idle";
+
+    statusMessage =
+      "Waiting for first telemetry reading...";
+
+    statusClass =
+      "idle";
+
   } else if (unsafe) {
-    statusMessage = "Warning: One or more environmental parameters are outside the configured safety range.";
-    statusClass = "warning";
+
+    statusMessage =
+      "Warning: One or more environmental parameters are outside the configured safety range.";
+
+    statusClass =
+      "warning";
+
   } else {
-    statusMessage = "All environmental parameters are currently within safe limits.";
-    statusClass = "safe";
+
+    statusMessage =
+      "All environmental parameters are currently within safe limits.";
+
+    statusClass =
+      "safe";
   }
+
+  const handlePrevPage = () =>
+    setPage(p =>
+      Math.max(
+        p - 1,
+        1
+      )
+    );
+
+  const handleNextPage = () =>
+    setPage(p =>
+      p + 1
+    );
+
+  // --------------------------------------------------
+  // UI
+  // --------------------------------------------------
 
   return (
     <div className="page-container">
+
       <section className="toolbar">
+
         <label>
           Select Shipment
-          <select value={shipmentId} onChange={e => setShipmentId(e.target.value)}>
+
+          <select
+            value={shipmentId}
+            onChange={e =>
+              setShipmentId(
+                e.target.value
+              )
+            }
+          >
+            <option value="">
+              No shipment
+            </option>
+
             {shipments.map(shp => (
-              <option key={shp.shipmentId || shp.id} value={shp.shipmentId || shp.id}>{shp.shipmentId || shp.id} — {shp.product}</option>
+              <option
+                key={
+                  shp.shipmentId ||
+                  shp.id
+                }
+                value={
+                  shp.shipmentId ||
+                  shp.id
+                }
+              >
+                {shp.shipmentId ||
+                 shp.id}
+                {" — "}
+                {shp.product}
+              </option>
             ))}
+
           </select>
         </label>
+
+
         <label>
           Select Device
-          <select value={selectedDeviceId} onChange={e => setSelectedDeviceId(e.target.value)}>
-            <option value="">No device</option>
+
+          <select
+            value={selectedDeviceId}
+            onChange={e => {
+              setSelectedDeviceId(
+                e.target.value
+              );
+
+              setPage(1);
+            }}
+          >
+
+            <option value="">
+              No device
+            </option>
+
             {devices.map(dev => (
-              <option key={dev.deviceId || dev.id} value={dev.deviceId || dev.id}>{dev.deviceId || dev.id}</option>
+
+              <option
+                key={
+                  dev.deviceId ||
+                  dev.id
+                }
+                value={
+                  dev.deviceId ||
+                  dev.id
+                }
+              >
+                {dev.deviceId ||
+                 dev.id}
+              </option>
+
             ))}
+
           </select>
         </label>
+
+
         <label>
           Limit per page
-          <select value={limit} onChange={e => setLimit(Number(e.target.value))}>
-            <option value={10}>10</option>
-            <option value={20}>20</option>
-            <option value={50}>50</option>
+
+          <select
+            value={limit}
+            onChange={e => {
+              setLimit(
+                Number(
+                  e.target.value
+                )
+              );
+
+              setPage(1);
+            }}
+          >
+
+            <option value={10}>
+              10
+            </option>
+
+            <option value={20}>
+              20
+            </option>
+
+            <option value={50}>
+              50
+            </option>
+
           </select>
         </label>
-        <div className="live-pill"><span />LIVE</div>
+
+
+        <div className="live-pill">
+          <span />
+          LIVE
+        </div>
+
       </section>
 
-      <section className={`status-banner ${statusClass}`}>
+
+      <section
+        className={
+          `status-banner ${statusClass}`
+        }
+      >
         {statusMessage}
       </section>
 
+
       <section className="sensor-grid">
+
         <SensorCard
-          icon={<FaTemperatureHalf />}
+          icon={
+            <FaTemperatureHalf />
+          }
           title="Temperature"
-          value={hasTelemetry && telemetry.temperature != null ? `${telemetry.temperature}°C` : "—"}
+          value={
+            hasTelemetry &&
+            telemetry.temperature != null
+
+              ? `${telemetry.temperature}°C`
+
+              : "—"
+          }
           subtitle="8°C – 28°C"
-          status={hasTelemetry && telemetry.temperature > 28 ? "warning" : hasTelemetry ? "safe" : "idle"}
-          history={history.temperature}
+          status={
+            temperatureWarning
+
+              ? "warning"
+
+              : hasTelemetry
+              ? "safe"
+              : "idle"
+          }
+          history={
+            history.temperature
+          }
         />
+
+
         <SensorCard
-          icon={<FaDroplet />}
+          icon={
+            <FaDroplet />
+          }
           title="Humidity"
-          value={hasTelemetry && telemetry.humidity != null ? `${telemetry.humidity}%` : "—"}
+          value={
+            hasTelemetry &&
+            telemetry.humidity != null
+
+              ? `${telemetry.humidity}%`
+
+              : "—"
+          }
           subtitle="40% – 80%"
-          status={hasTelemetry && telemetry.humidity > 80 ? "warning" : hasTelemetry ? "safe" : "idle"}
-          history={history.humidity}
+          status={
+            humidityWarning
+
+              ? "warning"
+
+              : hasTelemetry
+              ? "safe"
+              : "idle"
+          }
+          history={
+            history.humidity
+          }
         />
+
+
         <SensorCard
-          icon={<FaLeaf />}
+          icon={
+            <FaLeaf />
+          }
           title="Gas Level"
-          value={hasTelemetry && telemetry.gasLevel != null ? `${telemetry.gasLevel}` : "—"}
-          subtitle="Environmental safety"
-          status={hasTelemetry && telemetry.gasLevel !== "Safe" ? "warning" : hasTelemetry ? "safe" : "idle"}
+          value={
+            hasTelemetry &&
+            telemetry.gasLevel != null
+
+              ? telemetry.gasLevel
+
+              : "—"
+          }
+          subtitle={
+            gasWarning
+              ? "Gas warning"
+              : "Prototype gas response"
+          }
+          status={
+            gasWarning
+
+              ? "warning"
+
+              : hasTelemetry
+              ? "safe"
+              : "idle"
+          }
         />
+
+
         <SensorCard
-          icon={<FaBatteryThreeQuarters />}
+          icon={
+            <FaBatteryThreeQuarters />
+          }
           title="Battery"
-          value={hasTelemetry && telemetry.battery != null ? `${telemetry.battery}%` : "—"}
-          subtitle={hasDevice ? selectedDeviceId : "No device"}
-          status={hasTelemetry && telemetry.battery < 25 ? "warning" : hasTelemetry ? "safe" : "idle"}
-          history={history.battery}
+          value={
+            hasTelemetry &&
+            telemetry.battery != null
+
+              ? `${telemetry.battery}%`
+
+              : "—"
+          }
+          subtitle={
+            hasDevice
+              ? selectedDeviceId
+              : "No device"
+          }
+          status={
+            batteryWarning
+
+              ? "warning"
+
+              : hasTelemetry
+              ? "safe"
+              : "idle"
+          }
+          history={
+            history.battery
+          }
         />
+
       </section>
 
+
       <section className="card panel">
+
         <div className="panel-header">
+
           <div>
-            <h3>Telemetry History</h3>
-            <button onClick={handlePrevPage} disabled={page === 1}>Prev</button>
-            <span> Page {page} </span>
-            <button onClick={handleNextPage}>Next</button>
+
+            <h3>
+              Telemetry History
+            </h3>
+
+            <button
+              onClick={
+                handlePrevPage
+              }
+              disabled={
+                page === 1
+              }
+            >
+              Prev
+            </button>
+
+            <span>
+              {" "}Page {page}{" "}
+            </span>
+
+            <button
+              onClick={
+                handleNextPage
+              }
+            >
+              Next
+            </button>
+
           </div>
+
         </div>
-        {/* Raw history UI could be added here */}
+
       </section>
+
     </div>
   );
 }
