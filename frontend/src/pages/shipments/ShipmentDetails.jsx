@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
-import ShipmentRoutePlanner from "../components/shipments/ShipmentRoutePlanner";
+import ShipmentRoutePlanner from "../../components/shipments/ShipmentRoutePlanner";
 
 import {
   FaTemperatureHalf,
