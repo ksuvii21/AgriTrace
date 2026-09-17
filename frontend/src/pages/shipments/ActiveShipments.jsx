@@ -167,7 +167,7 @@ function ActiveShipments() {
                 <span className="sc-updated">
                   Updated {shipment.updated} · {shipment.device || "No device"}
                 </span>
-                <Link className="btn ghost small" to={`/shipments/${shipment.name || shipment.id}`}>View Details</Link>
+                <Link className="btn ghost small" to={`/shipments/${shipment.id}`}>View Details</Link>
               </div>
             </article>
           ))}
@@ -202,7 +202,7 @@ function ActiveShipments() {
                     <td><span className={`badge ${getStatusClass(shipment.status)}`}>{shipment.status}</span></td>
                     <td>{shipment.updated}</td>
                     <td>
-                      <Link className="btn ghost small" to={`/shipments/${shipment.name || shipment.id}`}>View</Link>
+                      <Link className="btn ghost small" to={`/shipments/${shipment.id}`}>View</Link>
                     </td>
                   </tr>
                 ))}

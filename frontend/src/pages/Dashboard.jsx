@@ -291,7 +291,7 @@ function Dashboard() {
                       </td>
                       <td>
                         <Link
-                          to={`/shipments/${shipment.name || shipment.shipmentId || shipment.id}`}
+                          to={`/shipments/${shipment.shipmentId || shipment.id}`}
                           className="icon-action"
                           title="View shipment"
                         >
