@@ -37,12 +37,20 @@ export async function registerDevice(data, user) {
 export async function listDevicesForUser(user) {
   const devices = getCollection("devices");
   const filter = await buildDeviceAccessFilter(user);
-  return devices.find(filter).sort({ createdAt: -1 }).toArray();
+  const rawDevices = await devices.find(filter).sort({ createdAt: -1 }).toArray();
+  return Promise.all(rawDevices.map(async (device) => {
+    const health = await buildDeviceHealthResponse(device);
+    return { ...device, ...health };
+  }));
 }
 
 export async function listDevices() {
   const devices = getCollection("devices");
-  return devices.find({}).toArray();
+  const rawDevices = await devices.find({}).toArray();
+  return Promise.all(rawDevices.map(async (device) => {
+    const health = await buildDeviceHealthResponse(device);
+    return { ...device, ...health };
+  }));
 }
 
 export async function getDeviceForUser(deviceId, user) {
