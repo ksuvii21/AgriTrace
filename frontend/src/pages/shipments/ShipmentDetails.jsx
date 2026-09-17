@@ -38,6 +38,7 @@ import {
 
 import { assignDeviceToShipment } from "../../api/deviceApi";
 import { getShipmentTimeline } from "../../api/timelineApi";
+import { getLatestShipmentTelemetry } from "../../api/telemetryApi";
 
 import {
   verifyShipmentIntegrity,
@@ -156,18 +157,6 @@ const getIdFromValue = (value) => {
   );
 };
 
-const getTelemetry = (shipment) => {
-  if (!shipment) return null;
-
-  return (
-    shipment.latestTelemetry ||
-    shipment.latestReading ||
-    shipment.telemetry ||
-    shipment.environmentalReading ||
-    shipment.lastTelemetry ||
-    null
-  );
-};
 
 const getStatusClass = (status) => {
   switch (status) {
@@ -280,6 +269,7 @@ function ShipmentDetails() {
   const [timeline, setTimeline] = useState([]);
   const [integrity, setIntegrity] = useState(null);
   const [qrData, setQrData] = useState(null);
+  const [telemetry, setTelemetry] = useState(null);
 
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
@@ -350,6 +340,20 @@ function ShipmentDetails() {
     console.log("🟡 ID:", id);
 
     fetchData();
+
+    // =====================================================
+    // 4. OPTIONAL TELEMETRY
+    // =====================================================
+    getLatestShipmentTelemetry(id)
+      .then((result) => {
+        console.log("[ShipmentDetails] Telemetry:", result);
+        setTelemetry(result ?? null);
+      })
+      .catch((err) => {
+        console.warn("[ShipmentDetails] Telemetry unavailable:", err);
+        setTelemetry(null);
+      });
+
   }, [id]);
 
 /* =========================================================
@@ -413,10 +417,7 @@ const warehouse =
     shipment?.assignedWarehouse
   );
 
-const telemetry = useMemo(
-  () => getTelemetry(shipment),
-  [shipment]
-);
+
 
 const temperature =
   telemetry?.temperature ??
