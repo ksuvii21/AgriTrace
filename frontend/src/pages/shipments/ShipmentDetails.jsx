@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import React, { useEffect, useMemo, useState } from "react";
+import { useParams } from "react-router-dom";
+
 import {
   FaTemperatureHalf,
   FaDroplet,
@@ -7,17 +8,48 @@ import {
   FaBatteryThreeQuarters,
   FaMicrochip,
   FaLocationDot,
+  FaTruck,
+  FaWarehouse,
+  FaBoxOpen,
+  FaCircleCheck,
+  FaClock,
+  FaShieldHalved,
+  FaQrcode,
+  FaDownload,
+  FaRotate,
+  FaPen,
+  FaLink,
+  FaCopy,
+  FaCalendarDays,
+  FaRoute,
+  FaUser,
 } from "react-icons/fa6";
 
-import { getShipment, updateShipmentStatus, assignTransporter, assignWarehouse, updateShipmentThresholds, updateShipmentName } from "../../api/shipmentApi";
+import {
+  getShipment,
+  updateShipmentStatus,
+  assignTransporter,
+  assignWarehouse,
+  updateShipmentThresholds,
+  updateShipmentName,
+  getShipmentQr,
+} from "../../api/shipmentApi";
+
 import { assignDeviceToShipment } from "../../api/deviceApi";
 import { getShipmentTimeline } from "../../api/timelineApi";
-import { verifyShipmentIntegrity, createIntegrityCheckpoint } from "../../api/traceabilityApi";
-import { getShipmentQr } from "../../api/shipmentApi";
+
+import {
+  verifyShipmentIntegrity,
+  createIntegrityCheckpoint,
+} from "../../api/traceabilityApi";
+
 import LoadingSpinner from "../../components/common/LoadingSpinner";
 import EmptyState from "../../components/common/EmptyState";
-import ErrorState from "../../components/common/ErrorState";
 import { useAuth } from "../../context/AuthContext";
+
+/* =========================================================
+   CONSTANTS
+========================================================= */
 
 const ALLOWED_TRANSITIONS = {
   PENDING: ["DEVICE_ASSIGNED", "CANCELLED"],
@@ -37,57 +69,303 @@ const STATUS_LABELS = {
   CANCELLED: "Cancelled",
 };
 
+const JOURNEY = [
+  {
+    key: "PENDING",
+    label: "Created",
+    icon: FaBoxOpen,
+  },
+  {
+    key: "DEVICE_ASSIGNED",
+    label: "Device Assigned",
+    icon: FaMicrochip,
+  },
+  {
+    key: "READY_FOR_DISPATCH",
+    label: "Ready for Dispatch",
+    icon: FaCircleCheck,
+  },
+  {
+    key: "IN_TRANSIT",
+    label: "In Transit",
+    icon: FaTruck,
+  },
+  {
+    key: "AT_WAREHOUSE",
+    label: "At Warehouse",
+    icon: FaWarehouse,
+  },
+  {
+    key: "DELIVERED",
+    label: "Delivered",
+    icon: FaCircleCheck,
+  },
+];
+
+const STATUS_ORDER = [
+  "PENDING",
+  "DEVICE_ASSIGNED",
+  "READY_FOR_DISPATCH",
+  "IN_TRANSIT",
+  "AT_WAREHOUSE",
+  "DELIVERED",
+];
+
+/* =========================================================
+   HELPERS
+========================================================= */
+
+const hasValue = (value) =>
+  value !== undefined &&
+  value !== null &&
+  value !== "" &&
+  value !== "null" &&
+  value !== "undefined";
+
+const displayValue = (value) => (hasValue(value) ? value : "");
+
+const formatDate = (value) => {
+  if (!hasValue(value)) return "";
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return String(value);
+  }
+
+  return date.toLocaleString();
+};
+
+const getIdFromValue = (value) => {
+  if (!value) return "";
+
+  if (typeof value === "string") {
+    return value;
+  }
+
+  return (
+    value.deviceId ||
+    value.userId ||
+    value.warehouseId ||
+    value.transporterId ||
+    value.name ||
+    value._id ||
+    value.id ||
+    ""
+  );
+};
+
+const getTelemetry = (shipment) => {
+  if (!shipment) return null;
+
+  return (
+    shipment.latestTelemetry ||
+    shipment.latestReading ||
+    shipment.telemetry ||
+    shipment.environmentalReading ||
+    shipment.lastTelemetry ||
+    null
+  );
+};
+
+const getStatusClass = (status) => {
+  switch (status) {
+    case "DELIVERED":
+      return "success";
+
+    case "CANCELLED":
+      return "alert";
+
+    case "AT_WAREHOUSE":
+      return "warehouse";
+
+    case "IN_TRANSIT":
+    case "READY_FOR_DISPATCH":
+    case "DEVICE_ASSIGNED":
+      return "transit";
+
+    default:
+      return "offline";
+  }
+};
+
+/* =========================================================
+   SMALL COMPONENTS
+========================================================= */
+
+function InfoItem({ icon: Icon, label, value, mono = false }) {
+  return (
+    <div className="sd-info-item">
+      <div className="sd-info-icon">
+        <Icon />
+      </div>
+
+      <div className="sd-info-content">
+        <span>{label}</span>
+
+        {hasValue(value) ? (
+          <strong className={mono ? "sd-mono" : ""}>{value}</strong>
+        ) : (
+          <strong className="sd-empty-value">&nbsp;</strong>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SensorCard({
+  icon: Icon,
+  label,
+  value,
+  unit = "",
+  subtitle,
+  emptyText,
+}) {
+  const available = hasValue(value);
+
+  return (
+    <div className={`sd-sensor-card ${available ? "" : "is-empty"}`}>
+      <div className="sd-sensor-top">
+        <div className="sd-sensor-icon">
+          <Icon />
+        </div>
+
+        <span>{label}</span>
+      </div>
+
+      <div className="sd-sensor-reading">
+        {available ? (
+          <>
+            {value}
+            {unit && <small>{unit}</small>}
+          </>
+        ) : (
+          <span className="sd-reading-empty">—</span>
+        )}
+      </div>
+
+      <div className="sd-sensor-caption">
+        {available ? subtitle || "\u00A0" : emptyText || "\u00A0"}
+      </div>
+    </div>
+  );
+}
+
+function EmptySection({ icon: Icon, title, text }) {
+  return (
+    <div className="sd-empty-section">
+      <div className="sd-empty-icon">
+        <Icon />
+      </div>
+
+      <strong>{title}</strong>
+
+      {text && <p>{text}</p>}
+    </div>
+  );
+}
+
+/* =========================================================
+   MAIN COMPONENT
+========================================================= */
+
 function ShipmentDetails() {
   const { id } = useParams();
   const { role } = useAuth();
+
   const [shipment, setShipment] = useState(null);
   const [timeline, setTimeline] = useState([]);
   const [integrity, setIntegrity] = useState(null);
   const [qrData, setQrData] = useState(null);
+
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
   const [actionLoading, setActionLoading] = useState(false);
-  const [actionError, setActionError] = useState(null);
-  const [thresholdEditor, setThresholdEditor] = useState(null);
+
+  const [error, setError] = useState("");
+  const [actionError, setActionError] = useState("");
+  const [successMessage, setSuccessMessage] = useState("");
+
+  const [thresholdEditor, setThresholdEditor] = useState(false);
   const [assignEditor, setAssignEditor] = useState(null);
-  const [nameEditor, setNameEditor] = useState(null);
+  const [nameEditor, setNameEditor] = useState(false);
+
   const [nameValue, setNameValue] = useState("");
+
   const [thresholdValues, setThresholdValues] = useState({
-    temperatureMin: shipment?.thresholds?.temperature?.min ?? "",
-    temperatureMax: shipment?.thresholds?.temperature?.max ?? "",
-    humidityMin: shipment?.thresholds?.humidity?.min ?? "",
-    humidityMax: shipment?.thresholds?.humidity?.max ?? "",
-    gasLevelMax: shipment?.thresholds?.gasLevel?.max ?? "",
+    temperatureMin: "",
+    temperatureMax: "",
+    humidityMin: "",
+    humidityMax: "",
+    gasLevelMax: "",
   });
+
+  const canManage = role === "ADMIN" || role === "FARMER";
+
+  /* =========================================================
+     FETCH
+  ========================================================= */
 
   const fetchData = async () => {
     if (!id) {
-      setError("Shipment ID is missing");
+      setError("Shipment ID is missing.");
       setLoading(false);
       return;
     }
 
     setLoading(true);
-    setError(null);
+    setError("");
+
     try {
-      const [shipmentRes, timelineRes, integrityRes] = await Promise.all([
-        getShipment(id),
-        getShipmentTimeline(id),
-        verifyShipmentIntegrity(id),
-      ]);
-      setShipment(shipmentRes ?? null);
-      setTimeline(Array.isArray(timelineRes) ? timelineRes : []);
-      setIntegrity(integrityRes ?? null);
-      setThresholdValues({
-        temperatureMin: shipmentRes?.thresholds?.temperature?.min ?? "",
-        temperatureMax: shipmentRes?.thresholds?.temperature?.max ?? "",
-        humidityMin: shipmentRes?.thresholds?.humidity?.min ?? "",
-        humidityMax: shipmentRes?.thresholds?.humidity?.max ?? "",
-        gasLevelMax: shipmentRes?.thresholds?.gasLevel?.max ?? "",
-      });
+      /*
+       * Shipment is the only mandatory request.
+       * Timeline/integrity failure should NOT destroy the whole page.
+       */
+      const shipmentRes = await getShipment(id);
+
+      setShipment(shipmentRes || null);
+
+      if (shipmentRes) {
+        setThresholdValues({
+          temperatureMin:
+            shipmentRes?.thresholds?.temperature?.min ?? "",
+          temperatureMax:
+            shipmentRes?.thresholds?.temperature?.max ?? "",
+          humidityMin:
+            shipmentRes?.thresholds?.humidity?.min ?? "",
+          humidityMax:
+            shipmentRes?.thresholds?.humidity?.max ?? "",
+          gasLevelMax:
+            shipmentRes?.thresholds?.gasLevel?.max ?? "",
+        });
+      }
+
+      const [timelineResult, integrityResult] =
+        await Promise.allSettled([
+          getShipmentTimeline(id),
+          verifyShipmentIntegrity(id),
+        ]);
+
+      if (timelineResult.status === "fulfilled") {
+        setTimeline(
+          Array.isArray(timelineResult.value)
+            ? timelineResult.value
+            : []
+        );
+      } else {
+        setTimeline([]);
+      }
+
+      if (integrityResult.status === "fulfilled") {
+        setIntegrity(integrityResult.value ?? null);
+      } else {
+        setIntegrity(null);
+      }
     } catch (err) {
-      console.error(err);
-      setError(err.message || "Failed to load shipment details");
+      console.error("Shipment load error:", err);
+
+      setError(
+        err?.message || "Failed to load shipment details."
+      );
     } finally {
       setLoading(false);
     }
@@ -97,62 +375,146 @@ function ShipmentDetails() {
     fetchData();
   }, [id]);
 
-  const handleGenerateQr = async () => {
+  /* =========================================================
+     DERIVED DATA
+  ========================================================= */
+
+  const status = shipment?.status || "";
+
+  const nextStatuses =
+    ALLOWED_TRANSITIONS[status] || [];
+
+  const shipmentId =
+    shipment?.shipmentId ||
+    shipment?.id ||
+    shipment?._id ||
+    id ||
+    "";
+
+  const shipmentName = shipment?.name || "";
+
+  const product =
+    shipment?.product ||
+    shipment?.productName ||
+    "";
+
+  const source = shipment?.source || "";
+  const destination = shipment?.destination || "";
+
+  const trackingId = shipment?.trackingId || "";
+
+  const device =
+    getIdFromValue(shipment?.assignedDevice) ||
+    getIdFromValue(shipment?.device);
+
+  const transporter =
+    getIdFromValue(shipment?.transporter) ||
+    getIdFromValue(shipment?.assignedTransporter);
+
+  const warehouse =
+    getIdFromValue(shipment?.warehouse) ||
+    getIdFromValue(shipment?.assignedWarehouse);
+
+  const telemetry = useMemo(
+    () => getTelemetry(shipment),
+    [shipment]
+  );
+
+  const temperature =
+    telemetry?.temperature ??
+    telemetry?.temp ??
+    null;
+
+  const humidity =
+    telemetry?.humidity ??
+    null;
+
+  const gasLevel =
+    telemetry?.gasLevel ??
+    telemetry?.gas ??
+    telemetry?.gasRaw ??
+    null;
+
+  const battery =
+    telemetry?.battery ??
+    telemetry?.batteryLevel ??
+    telemetry?.batteryPercent ??
+    null;
+
+  const telemetryTime =
+    telemetry?.timestamp ||
+    telemetry?.createdAt ||
+    telemetry?.recordedAt ||
+    "";
+
+  /* =========================================================
+     TOAST
+  ========================================================= */
+
+  const showSuccess = (message) => {
+    setSuccessMessage(message);
+
+    window.setTimeout(() => {
+      setSuccessMessage("");
+    }, 3000);
+  };
+
+  /* =========================================================
+     STATUS UPDATE
+  ========================================================= */
+
+  const handleUpdateStatus = async (newStatus) => {
     setActionLoading(true);
-    setActionError(null);
+    setActionError("");
+
     try {
-      const data = await getShipmentQr(id);
-      setQrData(data ?? null);
+      await updateShipmentStatus(id, newStatus);
+
+      showSuccess(
+        `Shipment updated to ${
+          STATUS_LABELS[newStatus] || newStatus
+        }.`
+      );
+
+      await fetchData();
     } catch (err) {
       console.error(err);
-      setActionError(err.message || "Failed to generate QR");
+
+      setActionError(
+        err?.message || "Failed to update shipment status."
+      );
     } finally {
       setActionLoading(false);
     }
   };
 
-  const handleCreateCheckpoint = async () => {
-    setActionLoading(true);
-    setActionError(null);
-    try {
-      await createIntegrityCheckpoint(id);
-      setActionError(null);
-      const integrityRes = await verifyShipmentIntegrity(id);
-      setIntegrity(integrityRes ?? null);
-    } catch (err) {
-      console.error(err);
-      setActionError(err.message || "Failed to create checkpoint");
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  const handleUpdateStatus = (status) => {
-    setActionLoading(true);
-    setActionError(null);
-    updateShipmentStatus(id, status)
-      .then(() => {
-        setActionLoading(false);
-        fetchData();
-      })
-      .catch((err) => {
-        console.error(err);
-        setActionError(err.message || "Failed to update status");
-        setActionLoading(false);
-      });
-  };
+  /* =========================================================
+     ASSIGNMENTS
+  ========================================================= */
 
   const handleAssignDevice = async (deviceId) => {
     if (!deviceId?.trim()) return;
+
     setActionLoading(true);
-    setActionError(null);
-    setAssignEditor(null);
+    setActionError("");
+
     try {
-      await assignDeviceToShipment(deviceId.trim(), id);
-      fetchData();
+      await assignDeviceToShipment(
+        deviceId.trim(),
+        id
+      );
+
+      setAssignEditor(null);
+
+      showSuccess("Device assigned successfully.");
+
+      await fetchData();
     } catch (err) {
       console.error(err);
-      setActionError(err.message || "Failed to assign device");
+
+      setActionError(
+        err?.message || "Failed to assign device."
+      );
     } finally {
       setActionLoading(false);
     }
@@ -160,15 +522,27 @@ function ShipmentDetails() {
 
   const handleAssignTransporter = async (transporterId) => {
     if (!transporterId?.trim()) return;
+
     setActionLoading(true);
-    setActionError(null);
-    setAssignEditor(null);
+    setActionError("");
+
     try {
-      await assignTransporter(id, transporterId.trim());
-      fetchData();
+      await assignTransporter(
+        id,
+        transporterId.trim()
+      );
+
+      setAssignEditor(null);
+
+      showSuccess("Transporter assigned successfully.");
+
+      await fetchData();
     } catch (err) {
       console.error(err);
-      setActionError(err.message || "Failed to assign transporter");
+
+      setActionError(
+        err?.message || "Failed to assign transporter."
+      );
     } finally {
       setActionLoading(false);
     }
@@ -176,365 +550,1147 @@ function ShipmentDetails() {
 
   const handleAssignWarehouse = async (warehouseId) => {
     if (!warehouseId?.trim()) return;
+
     setActionLoading(true);
-    setActionError(null);
-    setAssignEditor(null);
+    setActionError("");
+
     try {
-      await assignWarehouse(id, warehouseId.trim());
-      fetchData();
+      await assignWarehouse(
+        id,
+        warehouseId.trim()
+      );
+
+      setAssignEditor(null);
+
+      showSuccess("Warehouse assigned successfully.");
+
+      await fetchData();
     } catch (err) {
       console.error(err);
-      setActionError(err.message || "Failed to assign warehouse");
+
+      setActionError(
+        err?.message || "Failed to assign warehouse."
+      );
     } finally {
       setActionLoading(false);
     }
   };
+
+  /* =========================================================
+     NAME
+  ========================================================= */
 
   const handleUpdateName = async () => {
-    if (!nameValue?.trim()) {
-      setActionError("Name is required");
+    const cleanName = nameValue.trim();
+
+    if (!cleanName) {
+      setActionError("Shipment name is required.");
       return;
     }
+
     setActionLoading(true);
-    setActionError(null);
+    setActionError("");
+
     try {
-      await updateShipmentName(id, nameValue.trim());
-      setNameEditor(null);
+      await updateShipmentName(id, cleanName);
+
+      setNameEditor(false);
       setNameValue("");
-      fetchData();
+
+      showSuccess("Shipment name updated.");
+
+      await fetchData();
     } catch (err) {
       console.error(err);
-      setActionError(err.message || "Failed to update name");
+
+      setActionError(
+        err?.message || "Failed to update shipment name."
+      );
     } finally {
       setActionLoading(false);
     }
   };
+
+  /* =========================================================
+     THRESHOLDS
+  ========================================================= */
 
   const handleUpdateThresholds = async () => {
-    const tempMin = parseFloat(thresholdValues.temperatureMin);
-    const tempMax = parseFloat(thresholdValues.temperatureMax);
-    const humidMin = parseFloat(thresholdValues.humidityMin);
-    const humidMax = parseFloat(thresholdValues.humidityMax);
-    const gasMax = parseFloat(thresholdValues.gasLevelMax);
+    const tempMin = Number(
+      thresholdValues.temperatureMin
+    );
 
-    if (isNaN(tempMin) || isNaN(tempMax) || tempMin >= tempMax) {
-      setActionError("Temperature min must be less than max");
+    const tempMax = Number(
+      thresholdValues.temperatureMax
+    );
+
+    const humidityMin = Number(
+      thresholdValues.humidityMin
+    );
+
+    const humidityMax = Number(
+      thresholdValues.humidityMax
+    );
+
+    const gasMax = Number(
+      thresholdValues.gasLevelMax
+    );
+
+    if (
+      thresholdValues.temperatureMin === "" ||
+      thresholdValues.temperatureMax === "" ||
+      Number.isNaN(tempMin) ||
+      Number.isNaN(tempMax) ||
+      tempMin >= tempMax
+    ) {
+      setActionError(
+        "Temperature minimum must be lower than maximum."
+      );
       return;
     }
-    if (isNaN(humidMin) || isNaN(humidMax) || humidMin >= humidMax) {
-      setActionError("Humidity min must be less than max");
+
+    if (
+      thresholdValues.humidityMin === "" ||
+      thresholdValues.humidityMax === "" ||
+      Number.isNaN(humidityMin) ||
+      Number.isNaN(humidityMax) ||
+      humidityMin >= humidityMax
+    ) {
+      setActionError(
+        "Humidity minimum must be lower than maximum."
+      );
       return;
     }
-    if (isNaN(gasMax) || gasMax < 0) {
-      setActionError("Gas level max must be non-negative");
+
+    if (
+      thresholdValues.gasLevelMax === "" ||
+      Number.isNaN(gasMax) ||
+      gasMax < 0
+    ) {
+      setActionError(
+        "Gas maximum must be zero or greater."
+      );
       return;
     }
 
     setActionLoading(true);
-    setActionError(null);
-    setThresholdEditor(null);
+    setActionError("");
+
     try {
       await updateShipmentThresholds(id, {
-        temperature: { min: tempMin, max: tempMax },
-        humidity: { min: humidMin, max: humidMax },
-        gasLevel: { max: gasMax },
+        temperature: {
+          min: tempMin,
+          max: tempMax,
+        },
+
+        humidity: {
+          min: humidityMin,
+          max: humidityMax,
+        },
+
+        gasLevel: {
+          max: gasMax,
+        },
       });
-      fetchData();
+
+      setThresholdEditor(false);
+
+      showSuccess("Monitoring thresholds updated.");
+
+      await fetchData();
     } catch (err) {
       console.error(err);
-      setActionError(err.message || "Failed to update thresholds");
+
+      setActionError(
+        err?.message || "Failed to update thresholds."
+      );
     } finally {
       setActionLoading(false);
     }
   };
 
-  if (loading) return <LoadingSpinner />;
-  if (error) return <EmptyState message="Failed to load shipment details" retry={fetchData} />;
-  if (!shipment) return <EmptyState message="Shipment not found" />;
+  /* =========================================================
+     QR
+  ========================================================= */
 
-  const status = shipment.status || "PENDING";
-  const nextStatuses = ALLOWED_TRANSITIONS[status] || [];
-  const sId = shipment.shipmentId || shipment.id || id;
-  const sName = shipment.name || sId;
-  const sProduct = shipment.product || shipment.productName || "Unknown";
-  const sSource = shipment.source || "Unknown";
-  const sDestination = shipment.destination || "Unknown";
-  const sDevice = shipment.assignedDevice || shipment.device || "Not assigned";
-  const sTrackingId = shipment.trackingId || "—";
+  const handleGenerateQr = async () => {
+    setActionLoading(true);
+    setActionError("");
 
-  const journeyStages = [
-    { name: "Created", done: true },
-    { name: "Device Assigned", done: status !== "PENDING" },
-    { name: "Ready for Dispatch", done: ["READY_FOR_DISPATCH", "IN_TRANSIT", "AT_WAREHOUSE", "DELIVERED"].includes(status) },
-    { name: "In Transit", done: ["IN_TRANSIT", "AT_WAREHOUSE", "DELIVERED"].includes(status) },
-    { name: "At Warehouse", done: ["AT_WAREHOUSE", "DELIVERED"].includes(status) },
-    { name: "Delivered", done: status === "DELIVERED" },
-  ];
+    try {
+      const data = await getShipmentQr(id);
+
+      setQrData(data || null);
+
+      if (data?.qrDataUrl) {
+        showSuccess("Shipment QR generated.");
+      }
+    } catch (err) {
+      console.error(err);
+
+      setActionError(
+        err?.message || "Failed to generate QR code."
+      );
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleDownloadQr = async () => {
+    if (!qrData?.qrDataUrl) return;
+
+    try {
+      /*
+       * Data URLs can be downloaded directly.
+       * Remote URLs are fetched and converted into a Blob.
+       */
+      let downloadUrl = qrData.qrDataUrl;
+      let shouldRevoke = false;
+
+      if (!qrData.qrDataUrl.startsWith("data:")) {
+        const response = await fetch(qrData.qrDataUrl);
+
+        if (!response.ok) {
+          throw new Error("Unable to download QR image.");
+        }
+
+        const blob = await response.blob();
+
+        downloadUrl = URL.createObjectURL(blob);
+        shouldRevoke = true;
+      }
+
+      const safeId = String(
+        trackingId || shipmentId || "shipment"
+      ).replace(/[^a-zA-Z0-9-_]/g, "-");
+
+      const link = document.createElement("a");
+
+      link.href = downloadUrl;
+      link.download = `AgriTrace-${safeId}-QR.png`;
+
+      document.body.appendChild(link);
+
+      link.click();
+      link.remove();
+
+      if (shouldRevoke) {
+        URL.revokeObjectURL(downloadUrl);
+      }
+
+      showSuccess("QR PNG downloaded.");
+    } catch (err) {
+      console.error(err);
+
+      setActionError(
+        err?.message || "Unable to download QR code."
+      );
+    }
+  };
+
+  const handleCopyTraceUrl = async () => {
+    if (!qrData?.traceUrl) return;
+
+    try {
+      await navigator.clipboard.writeText(
+        qrData.traceUrl
+      );
+
+      showSuccess("Trace URL copied.");
+    } catch {
+      setActionError("Unable to copy trace URL.");
+    }
+  };
+
+  /* =========================================================
+     INTEGRITY
+  ========================================================= */
+
+  const handleCreateCheckpoint = async () => {
+    setActionLoading(true);
+    setActionError("");
+
+    try {
+      await createIntegrityCheckpoint(id);
+
+      const result =
+        await verifyShipmentIntegrity(id);
+
+      setIntegrity(result ?? null);
+
+      showSuccess("Integrity checkpoint created.");
+    } catch (err) {
+      console.error(err);
+
+      setActionError(
+        err?.message ||
+          "Failed to create integrity checkpoint."
+      );
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  /* =========================================================
+     LOAD STATES
+  ========================================================= */
+
+  if (loading) {
+    return <LoadingSpinner />;
+  }
+
+  if (error) {
+    return (
+      <EmptyState
+        message={error}
+        retry={fetchData}
+      />
+    );
+  }
+
+  if (!shipment) {
+    return (
+      <EmptyState message="Shipment not found." />
+    );
+  }
+
+  /* =========================================================
+     JOURNEY STATE
+  ========================================================= */
+
+  const currentStatusIndex =
+    STATUS_ORDER.indexOf(status);
+
+  /* =========================================================
+     UI
+  ========================================================= */
 
   return (
-    <div className="page-container">
-      <section className="shipment-detail-header panel">
-        <div>
-          <span className="eyebrow">SHIPMENT DETAILS</span>
-          <h2>{sName}</h2>
-          <p>{sProduct} &bull; {sSource} &rarr; {sDestination}</p>
+    <div className="page-container shipment-details-page">
+
+      {/* =====================================================
+          HERO
+      ===================================================== */}
+
+      <section className="sd-hero">
+        <div className="sd-hero-main">
+          <div className="sd-hero-icon">
+            <FaBoxOpen />
+          </div>
+
+          <div className="sd-hero-copy">
+            <span className="eyebrow">
+              SHIPMENT DETAILS
+            </span>
+
+            <h1>
+              {shipmentName || "Unnamed Shipment"}
+            </h1>
+
+            <div className="sd-hero-meta">
+              {product && <span>{product}</span>}
+
+              {(source || destination) && (
+                <span className="sd-route">
+                  <FaLocationDot />
+
+                  {source && <span>{source}</span>}
+
+                  {source && destination && (
+                    <span>→</span>
+                  )}
+
+                  {destination && (
+                    <span>{destination}</span>
+                  )}
+                </span>
+              )}
+            </div>
+          </div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          <span className={`badge ${nextStatuses.length ? "transit" : "delivered"}`}>
-            {STATUS_LABELS[status] || status}
-          </span>
-          {(role === "ADMIN" || role === "FARMER") && (
+
+        <div className="sd-hero-actions">
+          {status && (
+            <span
+              className={`badge ${getStatusClass(
+                status
+              )}`}
+            >
+              <span className="badge-dot" />
+
+              {STATUS_LABELS[status] || status}
+            </span>
+          )}
+
+          {canManage && (
             <button
-              className="btn secondary small"
+              className="btn ghost small"
               disabled={actionLoading}
               onClick={() => {
-                setNameValue(shipment.name || "");
+                setNameValue(shipmentName);
                 setNameEditor(true);
               }}
             >
+              <FaPen />
               Edit Name
             </button>
           )}
         </div>
       </section>
 
-      {actionError && <ErrorState message="Action failed" retry={() => setActionError(null)} />}
+      {/* =====================================================
+          ERROR
+      ===================================================== */}
 
-      {/* Monitoring Thresholds */}
-      <section className="panel">
-        <div className="panel-header">
-          <h3>Monitoring Thresholds</h3>
+      {actionError && (
+        <div className="sd-action-error">
+          <span>{actionError}</span>
+
+          <button
+            type="button"
+            onClick={() => setActionError("")}
+          >
+            ×
+          </button>
         </div>
-        <div className="sensor-grid">
-          <span className="sensor-card">
-            <FaTemperatureHalf />
-            <div className="sensor-card-title">Temperature Min</div>
-            <div className="sensor-card-value">{shipment.thresholds?.temperature?.min != null ? `${shipment.thresholds.temperature.min}°C` : "—"}</div>
-            <div className="sensor-card-sub">Minimum threshold</div>
-          </span>
-          <span className="sensor-card">
-            <FaTemperatureHalf />
-            <div className="sensor-card-title">Temperature Max</div>
-            <div className="sensor-card-value">{shipment.thresholds?.temperature?.max != null ? `${shipment.thresholds.temperature.max}°C` : "—"}</div>
-            <div className="sensor-card-sub">Maximum threshold</div>
-          </span>
-          <span className="sensor-card">
-            <FaDroplet />
-            <div className="sensor-card-title">Humidity Min</div>
-            <div className="sensor-card-value">{shipment.thresholds?.humidity?.min != null ? `${shipment.thresholds.humidity.min}%` : "—"}</div>
-            <div className="sensor-card-sub">Minimum threshold</div>
-          </span>
-          <span className="sensor-card">
-            <FaDroplet />
-            <div className="sensor-card-title">Humidity Max</div>
-            <div className="sensor-card-value">{shipment.thresholds?.humidity?.max != null ? `${shipment.thresholds.humidity.max}%` : "—"}</div>
-            <div className="sensor-card-sub">Maximum threshold</div>
-          </span>
-          <span className="sensor-card">
-            <FaLeaf />
-            <div className="sensor-card-title">Gas Max</div>
-            <div className="sensor-card-value">{shipment.thresholds?.gasLevel?.max != null ? `${shipment.thresholds.gasLevel.max}` : "—"}</div>
-            <div className="sensor-card-sub">Maximum threshold</div>
-          </span>
+      )}
+
+      {/* =====================================================
+          QUICK INFORMATION
+      ===================================================== */}
+
+      <section className="panel sd-section">
+        <div className="sd-section-header">
+          <div>
+            <span className="eyebrow">
+              OVERVIEW
+            </span>
+
+            <h2>Shipment Information</h2>
+          </div>
+        </div>
+
+        <div className="sd-info-grid">
+          <InfoItem
+            icon={FaBoxOpen}
+            label="Shipment ID"
+            value={shipmentId}
+            mono
+          />
+
+          <InfoItem
+            icon={FaRoute}
+            label="Tracking ID"
+            value={trackingId}
+            mono
+          />
+
+          <InfoItem
+            icon={FaMicrochip}
+            label="Monitoring Device"
+            value={device}
+            mono
+          />
+
+          <InfoItem
+            icon={FaTruck}
+            label="Transporter"
+            value={transporter}
+          />
+
+          <InfoItem
+            icon={FaWarehouse}
+            label="Warehouse"
+            value={warehouse}
+          />
+
+          <InfoItem
+            icon={FaCalendarDays}
+            label="Created"
+            value={formatDate(shipment.createdAt)}
+          />
         </div>
       </section>
 
-      {/* Latest Environmental Reading */}
-      <section className="panel">
-        <div className="panel-header">
-          <h3>Latest Environmental Reading</h3>
-        </div>
-        {sDevice === "Not assigned" ? (
-          <div className="sensor-grid">
-            <span className="sensor-card">
-              <FaTemperatureHalf />
-              <div className="sensor-card-title">Temperature</div>
-              <div className="sensor-card-value">—</div>
-              <div className="sensor-card-sub">No monitoring device assigned</div>
+      {/* =====================================================
+          THRESHOLDS
+      ===================================================== */}
+
+      <section className="panel sd-section">
+        <div className="sd-section-header">
+          <div>
+            <span className="eyebrow">
+              ENVIRONMENT
             </span>
-            <span className="sensor-card">
-              <FaDroplet />
-              <div className="sensor-card-title">Humidity</div>
-              <div className="sensor-card-value">—</div>
-              <div className="sensor-card-sub">No monitoring device assigned</div>
-            </span>
-            <span className="sensor-card">
-              <FaLeaf />
-              <div className="sensor-card-title">Gas Level</div>
-              <div className="sensor-card-value">—</div>
-              <div className="sensor-card-sub">No monitoring device assigned</div>
-            </span>
-            <span className="sensor-card">
-              <FaBatteryThreeQuarters />
-              <div className="sensor-card-title">Battery</div>
-              <div className="sensor-card-value">—</div>
-              <div className="sensor-card-sub">No monitoring device assigned</div>
-            </span>
+
+            <h2>Monitoring Thresholds</h2>
+
+            <p>
+              Safe operating limits configured for this
+              shipment.
+            </p>
           </div>
+
+          {canManage && (
+            <button
+              className="btn ghost small"
+              onClick={() =>
+                setThresholdEditor(true)
+              }
+              disabled={actionLoading}
+            >
+              <FaPen />
+              Update Thresholds
+            </button>
+          )}
+        </div>
+
+        <div className="sd-sensor-grid thresholds">
+          <SensorCard
+            icon={FaTemperatureHalf}
+            label="Temperature Min"
+            value={
+              shipment?.thresholds?.temperature?.min
+            }
+            unit="°C"
+            subtitle="Minimum allowed"
+          />
+
+          <SensorCard
+            icon={FaTemperatureHalf}
+            label="Temperature Max"
+            value={
+              shipment?.thresholds?.temperature?.max
+            }
+            unit="°C"
+            subtitle="Maximum allowed"
+          />
+
+          <SensorCard
+            icon={FaDroplet}
+            label="Humidity Min"
+            value={
+              shipment?.thresholds?.humidity?.min
+            }
+            unit="%"
+            subtitle="Minimum allowed"
+          />
+
+          <SensorCard
+            icon={FaDroplet}
+            label="Humidity Max"
+            value={
+              shipment?.thresholds?.humidity?.max
+            }
+            unit="%"
+            subtitle="Maximum allowed"
+          />
+
+          <SensorCard
+            icon={FaLeaf}
+            label="Gas Max"
+            value={
+              shipment?.thresholds?.gasLevel?.max
+            }
+            subtitle="Maximum configured level"
+          />
+        </div>
+      </section>
+
+      {/* =====================================================
+          LIVE ENVIRONMENT
+      ===================================================== */}
+
+      <section className="panel sd-section">
+        <div className="sd-section-header">
+          <div>
+            <span className="eyebrow">
+              TELEMETRY
+            </span>
+
+            <h2>Latest Environmental Reading</h2>
+
+            <p>
+              Latest sensor data received from the
+              assigned AgriTrace node.
+            </p>
+          </div>
+
+          {telemetryTime && (
+            <div className="sd-last-reading">
+              <FaClock />
+              {formatDate(telemetryTime)}
+            </div>
+          )}
+        </div>
+
+        {!device ? (
+          <EmptySection
+            icon={FaMicrochip}
+            title="No monitoring device assigned"
+            text="Assign an AgriTrace device to begin collecting shipment telemetry."
+          />
+        ) : !telemetry ? (
+          <EmptySection
+            icon={FaClock}
+            title="Waiting for telemetry"
+            text="The device is assigned, but no environmental reading has been received yet."
+          />
         ) : (
-          <p className="muted-text">Waiting for first telemetry reading...</p>
+          <div className="sd-sensor-grid telemetry">
+            <SensorCard
+              icon={FaTemperatureHalf}
+              label="Temperature"
+              value={temperature}
+              unit="°C"
+            />
+
+            <SensorCard
+              icon={FaDroplet}
+              label="Humidity"
+              value={humidity}
+              unit="%"
+            />
+
+            <SensorCard
+              icon={FaLeaf}
+              label="Gas Level"
+              value={gasLevel}
+            />
+
+            <SensorCard
+              icon={FaBatteryThreeQuarters}
+              label="Battery"
+              value={battery}
+              unit="%"
+            />
+          </div>
         )}
       </section>
 
-      {/* Timeline */}
-      <section className="panel">
-        <div className="panel-header">
-          <h3>Shipment Progress</h3>
-        </div>
-        <div className="timeline-horizontal">
-          {journeyStages.map((step, index) => (
-            <div className="timeline-step" key={step.name}>
-              <div className={`timeline-dot ${index < journeyStages.findIndex(s => !s.done) || (index === 0 && journeyStages.every(s => s.done)) ? "completed" : ""}`} />
-              <span>{step.name}</span>
-              {index < journeyStages.length - 1 && <div className="timeline-connector" />}
+      {/* =====================================================
+          JOURNEY
+      ===================================================== */}
+
+      {status !== "CANCELLED" && (
+        <section className="panel sd-section">
+          <div className="sd-section-header">
+            <div>
+              <span className="eyebrow">
+                JOURNEY
+              </span>
+
+              <h2>Shipment Progress</h2>
+
+              <p>
+                Current stage of the farm-to-fork
+                journey.
+              </p>
             </div>
-          ))}
-        </div>
-      </section>
-
-      {/* Actions */}
-      <section className="panel actions-section">
-        <div className="actions-grid">
-          {nextStatuses.map((st) => (
-            <button
-              key={st}
-              className="btn primary"
-              disabled={actionLoading}
-              onClick={() => handleUpdateStatus(st)}
-            >
-              Mark as {STATUS_LABELS[st] || st}
-            </button>
-          ))}
-          {role === "ADMIN" || role === "FARMER" ? (
-            <button className="btn secondary" disabled={actionLoading} onClick={() => setAssignEditor("device")}>
-              Assign Device
-            </button>
-          ) : null}
-          {role === "ADMIN" || role === "FARMER" ? (
-            <button className="btn secondary" disabled={actionLoading} onClick={() => setAssignEditor("transporter")}>
-              Assign Transporter
-            </button>
-          ) : null}
-          {role === "ADMIN" || role === "FARMER" ? (
-            <button className="btn secondary" disabled={actionLoading} onClick={() => setAssignEditor("warehouse")}>
-              Assign Warehouse
-            </button>
-          ) : null}
-          {role === "ADMIN" || role === "FARMER" ? (
-            <button className="btn secondary" disabled={actionLoading} onClick={() => setThresholdEditor(true)}>
-              Update Thresholds
-            </button>
-          ) : null}
-        </div>
-      </section>
-
-      {/* Shipment Info */}
-      <section className="dashboard-two-column">
-        <article className="panel">
-          <div className="panel-header"><h3>Shipment Information</h3></div>
-          <div className="details-grid">
-            <span className="detail-item"><span>Shipment Name</span><strong>{shipment.name || "—"}</strong></span>
-            <span className="detail-item"><span>Shipment ID</span><strong>{sId}</strong></span>
-            <span className="detail-item"><span>Product</span><strong>{sProduct}</strong></span>
-            <span className="detail-item"><span>Source</span><strong>{sSource}</strong></span>
-            <span className="detail-item"><span>Destination</span><strong>{sDestination}</strong></span>
-            <span className="detail-item"><span>Tracking ID</span><strong>{sTrackingId}</strong></span>
-            <span className="detail-item"><span>Status</span><strong>{STATUS_LABELS[status] || status}</strong></span>
-            <span className="detail-item"><span>Device</span><strong>{sDevice}</strong></span>
-            <span className="detail-item"><span>Created</span><strong>{shipment.createdAt || "—"}</strong></span>
           </div>
-        </article>
+
+          <div className="sd-progress">
+            {JOURNEY.map((step, index) => {
+              const Icon = step.icon;
+
+              const completed =
+                currentStatusIndex > index;
+
+              const current =
+                currentStatusIndex === index;
+
+              return (
+                <div
+                  key={step.key}
+                  className={`sd-progress-step ${
+                    completed ? "completed" : ""
+                  } ${current ? "current" : ""}`}
+                >
+                  {index !== JOURNEY.length - 1 && (
+                    <div className="sd-progress-line" />
+                  )}
+
+                  <div className="sd-progress-icon">
+                    {completed ? (
+                      <FaCircleCheck />
+                    ) : (
+                      <Icon />
+                    )}
+                  </div>
+
+                  <span>{step.label}</span>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      {/* =====================================================
+          MANAGEMENT ACTIONS
+      ===================================================== */}
+
+      {canManage && (
+        <section className="panel sd-section sd-actions-panel">
+          <div className="sd-section-header">
+            <div>
+              <span className="eyebrow">
+                MANAGEMENT
+              </span>
+
+              <h2>Shipment Actions</h2>
+            </div>
+          </div>
+
+          <div className="sd-actions">
+            {nextStatuses.map((nextStatus) => (
+              <button
+                key={nextStatus}
+                className={
+                  nextStatus === "CANCELLED"
+                    ? "btn danger"
+                    : "btn primary"
+                }
+                disabled={actionLoading}
+                onClick={() =>
+                  handleUpdateStatus(nextStatus)
+                }
+              >
+                {nextStatus === "CANCELLED"
+                  ? "Cancel Shipment"
+                  : `Mark as ${
+                      STATUS_LABELS[nextStatus] ||
+                      nextStatus
+                    }`}
+              </button>
+            ))}
+
+            <button
+              className="btn ghost"
+              disabled={actionLoading}
+              onClick={() =>
+                setAssignEditor("device")
+              }
+            >
+              <FaMicrochip />
+              {device
+                ? "Change Device"
+                : "Assign Device"}
+            </button>
+
+            <button
+              className="btn ghost"
+              disabled={actionLoading}
+              onClick={() =>
+                setAssignEditor("transporter")
+              }
+            >
+              <FaTruck />
+              {transporter
+                ? "Change Transporter"
+                : "Assign Transporter"}
+            </button>
+
+            <button
+              className="btn ghost"
+              disabled={actionLoading}
+              onClick={() =>
+                setAssignEditor("warehouse")
+              }
+            >
+              <FaWarehouse />
+              {warehouse
+                ? "Change Warehouse"
+                : "Assign Warehouse"}
+            </button>
+          </div>
+        </section>
+      )}
+
+      {/* =====================================================
+          TIMELINE + TRACEABILITY
+      ===================================================== */}
+
+      <div className="sd-main-grid">
 
         {/* Timeline */}
-        <article className="panel">
-          <div className="panel-header"><h3>Timeline Events</h3></div>
+
+        <section className="panel sd-section sd-timeline-panel">
+          <div className="sd-section-header">
+            <div>
+              <span className="eyebrow">
+                HISTORY
+              </span>
+
+              <h2>Timeline Events</h2>
+            </div>
+
+            {timeline.length > 0 && (
+              <span className="sd-count-pill">
+                {timeline.length}
+              </span>
+            )}
+          </div>
+
           {timeline.length === 0 ? (
-            <p>No timeline events yet.</p>
+            <EmptySection
+              icon={FaClock}
+              title="No timeline events"
+              text="Shipment activity will appear here as the journey progresses."
+            />
           ) : (
             <div className="timeline">
               {timeline.map((event, index) => (
-                <div className="timeline-item" key={index}>
-                  <div className="timeline-marker">•</div>
-                  <div className="timeline-content">
-                    <h3>{event.type || "Event"}</h3>
-                    <span>{event.timestamp ? new Date(event.timestamp).toLocaleString() : "—"}</span>
+                <div
+                  className={`tl-item ${
+                    index === 0
+                      ? "current"
+                      : "completed"
+                  }`}
+                  key={
+                    event._id ||
+                    event.id ||
+                    `${event.type}-${index}`
+                  }
+                >
+                  <div className="tl-marker">
+                    {index === 0 ? (
+                      <FaClock />
+                    ) : (
+                      <FaCircleCheck />
+                    )}
+                  </div>
+
+                  <div className="tl-line" />
+
+                  <div className="tl-body">
+                    <div className="sd-timeline-heading">
+                      <div>
+                        <div className="tl-title">
+                          {event.title ||
+                            event.type ||
+                            event.eventType ||
+                            ""}
+                        </div>
+
+                        {(event.description ||
+                          event.message) && (
+                          <div className="tl-sub">
+                            {event.description ||
+                              event.message}
+                          </div>
+                        )}
+
+                        {(event.timestamp ||
+                          event.createdAt) && (
+                          <div className="tl-time">
+                            {formatDate(
+                              event.timestamp ||
+                                event.createdAt
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 </div>
               ))}
             </div>
           )}
-        </article>
+        </section>
 
-        {/* QR */}
-        <article className="panel">
-          <div className="panel-header"><h3>QR Code</h3></div>
-          <div className="qr-display">
+        {/* Right column */}
+
+        <div className="sd-side-column">
+
+          {/* QR */}
+
+          <section className="panel sd-section qr-card">
+            <div className="sd-section-header">
+              <div>
+                <span className="eyebrow">
+                  PUBLIC TRACE
+                </span>
+
+                <h2>Shipment QR Code</h2>
+              </div>
+
+              <FaQrcode className="sd-heading-icon" />
+            </div>
+
             {qrData?.qrDataUrl ? (
-              <img src={qrData.qrDataUrl} alt={`QR for ${sId}`} style={{ maxWidth: 200 }} />
-            ) : qrData?.traceUrl ? (
-              <img src={qrData.traceUrl} alt={`QR for ${sId}`} style={{ maxWidth: 200 }} />
+              <>
+                <div className="qr-display sd-qr-display">
+                  <img
+                    src={qrData.qrDataUrl}
+                    alt="Shipment traceability QR code"
+                  />
+                </div>
+
+                {qrData?.traceUrl && (
+                  <div className="sd-trace-url">
+                    <div>
+                      <span>Trace URL</span>
+
+                      <strong>
+                        {qrData.traceUrl}
+                      </strong>
+                    </div>
+
+                    <button
+                      type="button"
+                      title="Copy trace URL"
+                      onClick={handleCopyTraceUrl}
+                    >
+                      <FaCopy />
+                    </button>
+                  </div>
+                )}
+
+                <div className="qr-actions">
+                  <button
+                    className="btn primary"
+                    onClick={handleDownloadQr}
+                    disabled={actionLoading}
+                  >
+                    <FaDownload />
+                    Download PNG
+                  </button>
+
+                  <button
+                    className="btn ghost"
+                    onClick={handleGenerateQr}
+                    disabled={actionLoading}
+                  >
+                    <FaRotate />
+                    Regenerate
+                  </button>
+                </div>
+              </>
             ) : (
-              <p>Click generate to create QR code</p>
+              <>
+                <div className="sd-qr-empty">
+                  <FaQrcode />
+
+                  <strong>
+                    QR code not generated
+                  </strong>
+
+                  <p>
+                    Generate a QR code for this
+                    shipment's public traceability
+                    record.
+                  </p>
+                </div>
+
+                <button
+                  className="btn primary"
+                  onClick={handleGenerateQr}
+                  disabled={actionLoading}
+                >
+                  <FaQrcode />
+
+                  {actionLoading
+                    ? "Generating..."
+                    : "Generate QR Code"}
+                </button>
+              </>
             )}
-          </div>
-          <button className="btn secondary" onClick={handleGenerateQr} disabled={actionLoading}>
-            {actionLoading ? "Generating..." : "Generate QR"}
-          </button>
-        </article>
+          </section>
 
-        {/* Integrity */}
-        <article className="panel">
-          <div className="panel-header"><h3>Integrity</h3></div>
-          {integrity == null ? (
-            <p>Click verify to check integrity</p>
-          ) : (
-            <div>
-              <p>Verified: {integrity.verified ? "Yes" : "No"}</p>
-              {integrity.checkpoints && integrity.checkpoints.length > 0 && (
-                <p>Checkpoints: {integrity.checkpoints.length}</p>
-              )}
+          {/* Integrity */}
+
+          <section className="panel sd-section integrity-card">
+            <div className="sd-section-header">
+              <div>
+                <span className="eyebrow">
+                  DATA INTEGRITY
+                </span>
+
+                <h2>Integrity Verification</h2>
+              </div>
+
+              <FaShieldHalved className="sd-heading-icon" />
             </div>
-          )}
-          <button className="btn secondary" onClick={handleCreateCheckpoint} disabled={actionLoading}>
-            Create Checkpoint
-          </button>
-        </article>
-      </section>
 
-      {/* Assign Editor Modal */}
+            {integrity === null ? (
+              <div className="sd-integrity-empty">
+                <div className="sd-integrity-icon neutral">
+                  <FaShieldHalved />
+                </div>
+
+                <div>
+                  <strong>
+                    No verification result
+                  </strong>
+
+                  <p>
+                    No integrity information is
+                    currently available.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="sd-integrity-content">
+                <div
+                  className={`sd-integrity-status ${
+                    integrity?.verified
+                      ? "verified"
+                      : "unverified"
+                  }`}
+                >
+                  <div className="sd-integrity-icon">
+                    <FaShieldHalved />
+                  </div>
+
+                  <div>
+                    <span>Integrity Status</span>
+
+                    <strong>
+                      {integrity?.verified
+                        ? "Verified"
+                        : "Not Verified"}
+                    </strong>
+                  </div>
+                </div>
+
+                {Array.isArray(
+                  integrity?.checkpoints
+                ) && (
+                  <div className="sd-checkpoint-count">
+                    <span>Checkpoints</span>
+
+                    <strong>
+                      {
+                        integrity.checkpoints
+                          .length
+                      }
+                    </strong>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {canManage && (
+              <button
+                className="btn ghost sd-checkpoint-btn"
+                onClick={handleCreateCheckpoint}
+                disabled={actionLoading}
+              >
+                <FaShieldHalved />
+                Create Integrity Checkpoint
+              </button>
+            )}
+          </section>
+        </div>
+      </div>
+
+      {/* =====================================================
+          ASSIGN MODAL
+      ===================================================== */}
+
       {assignEditor && (
-        <div className="modal-overlay">
-          <div className="modal">
+        <div
+          className="modal-overlay"
+          onMouseDown={(event) => {
+            if (
+              event.target === event.currentTarget
+            ) {
+              setAssignEditor(null);
+            }
+          }}
+        >
+          <div className="modal sd-modal">
             <div className="modal-header">
-              <h3>
-                {assignEditor === "device" ? "Assign Device" :
-                 assignEditor === "transporter" ? "Assign Transporter" :
-                 "Assign Warehouse"}
-              </h3>
+              <div>
+                <span className="eyebrow">
+                  ASSIGNMENT
+                </span>
+
+                <h3>
+                  {assignEditor === "device"
+                    ? "Assign Monitoring Device"
+                    : assignEditor ===
+                      "transporter"
+                    ? "Assign Transporter"
+                    : "Assign Warehouse"}
+                </h3>
+              </div>
             </div>
+
             <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                const value = e.target.elements.id.value.trim();
-                if (assignEditor === "device") handleAssignDevice(value);
-                else if (assignEditor === "transporter") handleAssignTransporter(value);
-                else handleAssignWarehouse(value);
+              onSubmit={(event) => {
+                event.preventDefault();
+
+                const value =
+                  event.currentTarget.elements
+                    .assignmentId.value.trim();
+
+                if (!value) return;
+
+                if (
+                  assignEditor === "device"
+                ) {
+                  handleAssignDevice(value);
+                } else if (
+                  assignEditor ===
+                  "transporter"
+                ) {
+                  handleAssignTransporter(
+                    value
+                  );
+                } else {
+                  handleAssignWarehouse(value);
+                }
               }}
             >
               <div className="form-group">
                 <label>
-                  {assignEditor === "device" ? "Device ID" :
-                   assignEditor === "transporter" ? "Transporter ID" :
-                   "Warehouse ID"}
+                  {assignEditor === "device"
+                    ? "Device ID"
+                    : assignEditor ===
+                      "transporter"
+                    ? "Transporter ID"
+                    : "Warehouse ID"}
                 </label>
-                <input type="text" name="id" placeholder="Enter ID..." required disabled={actionLoading} />
+
+                <input
+                  name="assignmentId"
+                  type="text"
+                  autoFocus
+                  required
+                  disabled={actionLoading}
+                  placeholder={
+                    assignEditor === "device"
+                      ? "Enter device ID"
+                      : assignEditor ===
+                        "transporter"
+                      ? "Enter transporter ID"
+                      : "Enter warehouse ID"
+                  }
+                />
               </div>
+
               <div className="modal-actions">
-                <button type="button" className="btn secondary" onClick={() => setAssignEditor(null)} disabled={actionLoading}>
+                <button
+                  type="button"
+                  className="btn ghost"
+                  onClick={() =>
+                    setAssignEditor(null)
+                  }
+                  disabled={actionLoading}
+                >
                   Cancel
                 </button>
-                <button type="submit" className="btn primary" disabled={actionLoading}>
-                  {actionLoading ? "Saving..." : "Save"}
+
+                <button
+                  type="submit"
+                  className="btn primary"
+                  disabled={actionLoading}
+                >
+                  {actionLoading
+                    ? "Assigning..."
+                    : "Assign"}
                 </button>
               </div>
             </form>
@@ -542,114 +1698,264 @@ function ShipmentDetails() {
         </div>
       )}
 
-      {/* Threshold Editor Modal */}
-      {thresholdEditor && (
-        <div className="modal-overlay">
-          <div className="modal">
-            <div className="modal-header">
-              <h3>Update Environmental Thresholds</h3>
-            </div>
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                handleUpdateThresholds();
-              }}
-            >
-              <div className="form-group">
-                <label>Temperature Min (°C)</label>
-                <input
-                  type="number"
-                  step="0.1"
-                  value={thresholdValues.temperatureMin}
-                  onChange={(e) => setThresholdValues({ ...thresholdValues, temperatureMin: e.target.value })}
-                  required
-                />
-              </div>
-              <div className="form-group">
-                <label>Temperature Max (°C)</label>
-                <input
-                  type="number"
-                  step="0.1"
-                  value={thresholdValues.temperatureMax}
-                  onChange={(e) => setThresholdValues({ ...thresholdValues, temperatureMax: e.target.value })}
-                  required
-                />
-              </div>
-              <div className="form-group">
-                <label>Humidity Min (%)</label>
-                <input
-                  type="number"
-                  value={thresholdValues.humidityMin}
-                  onChange={(e) => setThresholdValues({ ...thresholdValues, humidityMin: e.target.value })}
-                  required
-                />
-              </div>
-              <div className="form-group">
-                <label>Humidity Max (%)</label>
-                <input
-                  type="number"
-                  value={thresholdValues.humidityMax}
-                  onChange={(e) => setThresholdValues({ ...thresholdValues, humidityMax: e.target.value })}
-                  required
-                />
-              </div>
-              <div className="form-group">
-                <label>Gas Level Max</label>
-                <input
-                  type="number"
-                  value={thresholdValues.gasLevelMax}
-                  onChange={(e) => setThresholdValues({ ...thresholdValues, gasLevelMax: e.target.value })}
-                  required
-                />
-              </div>
-              <div className="modal-actions">
-                <button type="button" className="btn secondary" onClick={() => setThresholdEditor(null)} disabled={actionLoading}>
-                  Cancel
-                </button>
-                <button type="submit" className="btn primary" disabled={actionLoading}>
-                  {actionLoading ? "Saving..." : "Save"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      {/* =====================================================
+          NAME MODAL
+      ===================================================== */}
 
-      {/* Name Editor Modal */}
       {nameEditor && (
-        <div className="modal-overlay">
-          <div className="modal">
+        <div
+          className="modal-overlay"
+          onMouseDown={(event) => {
+            if (
+              event.target === event.currentTarget
+            ) {
+              setNameEditor(false);
+            }
+          }}
+        >
+          <div className="modal sd-modal">
             <div className="modal-header">
-              <h3>Change Shipment Name</h3>
+              <div>
+                <span className="eyebrow">
+                  SHIPMENT
+                </span>
+
+                <h3>Change Shipment Name</h3>
+              </div>
             </div>
+
             <form
-              onSubmit={(e) => {
-                e.preventDefault();
+              onSubmit={(event) => {
+                event.preventDefault();
                 handleUpdateName();
               }}
             >
               <div className="form-group">
                 <label>Shipment Name</label>
+
                 <input
                   type="text"
-                  name="name"
                   value={nameValue}
-                  onChange={(e) => setNameValue(e.target.value)}
-                  placeholder="e.g., Fresh tomatoes Sarnath to Lanka"
+                  onChange={(event) =>
+                    setNameValue(
+                      event.target.value
+                    )
+                  }
                   required
-                  disabled={actionLoading}
                   autoFocus
+                  disabled={actionLoading}
+                  placeholder="Enter shipment name"
                 />
               </div>
+
               <div className="modal-actions">
-                <button type="button" className="btn secondary" onClick={() => setNameEditor(null)} disabled={actionLoading}>
+                <button
+                  type="button"
+                  className="btn ghost"
+                  onClick={() =>
+                    setNameEditor(false)
+                  }
+                  disabled={actionLoading}
+                >
                   Cancel
                 </button>
-                <button type="submit" className="btn primary" disabled={actionLoading}>
-                  {actionLoading ? "Saving..." : "Save"}
+
+                <button
+                  type="submit"
+                  className="btn primary"
+                  disabled={actionLoading}
+                >
+                  {actionLoading
+                    ? "Saving..."
+                    : "Save Changes"}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* =====================================================
+          THRESHOLD MODAL
+      ===================================================== */}
+
+      {thresholdEditor && (
+        <div
+          className="modal-overlay"
+          onMouseDown={(event) => {
+            if (
+              event.target === event.currentTarget
+            ) {
+              setThresholdEditor(false);
+            }
+          }}
+        >
+          <div className="modal sd-modal sd-threshold-modal">
+            <div className="modal-header">
+              <div>
+                <span className="eyebrow">
+                  ENVIRONMENT
+                </span>
+
+                <h3>
+                  Update Monitoring Thresholds
+                </h3>
+              </div>
+            </div>
+
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                handleUpdateThresholds();
+              }}
+            >
+              <div className="sd-modal-grid">
+                <div className="form-group">
+                  <label>
+                    Temperature Min (°C)
+                  </label>
+
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={
+                      thresholdValues.temperatureMin
+                    }
+                    onChange={(event) =>
+                      setThresholdValues({
+                        ...thresholdValues,
+                        temperatureMin:
+                          event.target.value,
+                      })
+                    }
+                    required
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>
+                    Temperature Max (°C)
+                  </label>
+
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={
+                      thresholdValues.temperatureMax
+                    }
+                    onChange={(event) =>
+                      setThresholdValues({
+                        ...thresholdValues,
+                        temperatureMax:
+                          event.target.value,
+                      })
+                    }
+                    required
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>
+                    Humidity Min (%)
+                  </label>
+
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={
+                      thresholdValues.humidityMin
+                    }
+                    onChange={(event) =>
+                      setThresholdValues({
+                        ...thresholdValues,
+                        humidityMin:
+                          event.target.value,
+                      })
+                    }
+                    required
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>
+                    Humidity Max (%)
+                  </label>
+
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={
+                      thresholdValues.humidityMax
+                    }
+                    onChange={(event) =>
+                      setThresholdValues({
+                        ...thresholdValues,
+                        humidityMax:
+                          event.target.value,
+                      })
+                    }
+                    required
+                  />
+                </div>
+
+                <div className="form-group sd-modal-full">
+                  <label>Gas Level Max</label>
+
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    value={
+                      thresholdValues.gasLevelMax
+                    }
+                    onChange={(event) =>
+                      setThresholdValues({
+                        ...thresholdValues,
+                        gasLevelMax:
+                          event.target.value,
+                      })
+                    }
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="modal-actions">
+                <button
+                  type="button"
+                  className="btn ghost"
+                  onClick={() =>
+                    setThresholdEditor(false)
+                  }
+                  disabled={actionLoading}
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="submit"
+                  className="btn primary"
+                  disabled={actionLoading}
+                >
+                  {actionLoading
+                    ? "Saving..."
+                    : "Save Thresholds"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* =====================================================
+          TOAST
+      ===================================================== */}
+
+      {successMessage && (
+        <div className="toast-container">
+          <div className="toast">
+            <FaCircleCheck />
+            {successMessage}
           </div>
         </div>
       )}
