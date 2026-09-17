@@ -176,31 +176,52 @@ export function validateReading(data) {
   return errors;
 }
 
-export function normalizeTelemetry(data) {
+export function normalizeTelemetry(
+  data,
+  authoritativeDeviceId = data.deviceId,
+  authoritativeShipmentId = data.shipmentId ?? null
+) {
   return {
-    deviceId: data.deviceId,
-    shipmentId: data.shipmentId ?? null,
+    deviceId: authoritativeDeviceId,
+
+    // IMPORTANT
+    sequenceNumber: Number(data.sequenceNumber),
+
+    shipmentId: authoritativeShipmentId,
 
     temperature:
-      data.temperature != null ? Number(data.temperature) : null,
+      data.temperature != null
+        ? Number(data.temperature)
+        : null,
 
     humidity:
-      data.humidity != null ? Number(data.humidity) : null,
+      data.humidity != null
+        ? Number(data.humidity)
+        : null,
 
     gasLevel:
-      data.gasLevel != null ? Number(data.gasLevel) : null,
+      data.gasLevel != null
+        ? Number(data.gasLevel)
+        : null,
 
     battery:
-      data.battery != null ? Number(data.battery) : null,
+      data.battery != null
+        ? Number(data.battery)
+        : null,
 
     latitude:
-      data.latitude != null ? Number(data.latitude) : null,
+      data.latitude != null
+        ? Number(data.latitude)
+        : null,
 
     longitude:
-      data.longitude != null ? Number(data.longitude) : null,
+      data.longitude != null
+        ? Number(data.longitude)
+        : null,
 
-    timestamp: data.timestamp
-      ? new Date(data.timestamp)
-      : new Date(),
+    timestamp:
+      data.timestamp
+        ? new Date(data.timestamp)
+        : new Date(),
   };
 }
