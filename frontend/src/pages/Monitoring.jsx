@@ -31,11 +31,13 @@ function Monitoring() {
 
   const [telemetry, setTelemetry] = useState(null);
 
-  const [history, setHistory] = useState({
-    temperature: [],
-    humidity: [],
-    battery: [],
-  });
+const [history, setHistory] = useState({
+  temperature: [],
+  humidity: [],
+  battery: []
+});
+
+const [historyRows, setHistoryRows] = useState([]);
 
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(20);
@@ -136,8 +138,7 @@ function Monitoring() {
             getDeviceTelemetryHistory(
               selectedDeviceId,
               {
-                limit,
-                page,
+                limit
               }
             ),
           ]);
@@ -156,24 +157,23 @@ function Monitoring() {
           latestRes ?? null
         );
 
-        const histData =
-          Array.isArray(historyRes)
-            ? historyRes
-            : [];
+        const histData = Array.isArray(historyRes) ? historyRes : [];
 
-        setHistory({
-          temperature: histData
-            .map(d => d.temperature)
-            .filter(v => v != null),
+setHistoryRows(histData);
 
-          humidity: histData
-            .map(d => d.humidity)
-            .filter(v => v != null),
+setHistory({
+  temperature: histData
+    .map(d => d.temperature)
+    .filter(v => v != null),
 
-          battery: histData
-            .map(d => d.battery)
-            .filter(v => v != null),
-        });
+  humidity: histData
+    .map(d => d.humidity)
+    .filter(v => v != null),
+
+  battery: histData
+    .map(d => d.battery)
+    .filter(v => v != null),
+});
 
       } catch (err) {
         console.error(
@@ -671,44 +671,73 @@ function Monitoring() {
       </section>
 
 
-      <section className="card panel">
+<section className="card panel">
+  <div className="panel-header">
+    <div>
+      <h3>Telemetry History</h3>
+      <p>Latest readings from {selectedDeviceId}</p>
+    </div>
+  </div>
 
-        <div className="panel-header">
+  {historyRows.length === 0 ? (
+    <div style={{ padding: "25px" }}>
+      No telemetry history available.
+    </div>
+  ) : (
+    <div style={{ overflowX: "auto" }}>
+      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Temperature</th>
+            <th>Humidity</th>
+            <th>Gas Level</th>
+            <th>Battery</th>
+            <th>Sequence</th>
+          </tr>
+        </thead>
 
-          <div>
+        <tbody>
+          {historyRows.map((row, index) => (
+            <tr key={row._id || `${row.sequenceNumber}-${index}`}>
+              <td>
+                {row.timestamp
+                  ? new Date(row.timestamp).toLocaleString()
+                  : "—"}
+              </td>
 
-            <h3>
-              Telemetry History
-            </h3>
+              <td>
+                {row.temperature != null
+                  ? `${row.temperature}°C`
+                  : "—"}
+              </td>
 
-            <button
-              onClick={
-                handlePrevPage
-              }
-              disabled={
-                page === 1
-              }
-            >
-              Prev
-            </button>
+              <td>
+                {row.humidity != null
+                  ? `${row.humidity}%`
+                  : "—"}
+              </td>
 
-            <span>
-              {" "}Page {page}{" "}
-            </span>
+              <td>
+                {row.gasLevel ?? "—"}
+              </td>
 
-            <button
-              onClick={
-                handleNextPage
-              }
-            >
-              Next
-            </button>
+              <td>
+                {row.battery != null
+                  ? `${row.battery}%`
+                  : "—"}
+              </td>
 
-          </div>
-
-        </div>
-
-      </section>
+              <td>
+                {row.sequenceNumber ?? "—"}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )}
+</section>
 
     </div>
   );
