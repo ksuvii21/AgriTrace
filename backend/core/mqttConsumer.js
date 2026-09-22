@@ -14,6 +14,8 @@ import { config } from "./config.js";
 
 import {generateTelemetryHash,} from "../services/integrityService.js";
 
+import {reverseGeocodeLocation,} from "../services/geocodingService.js";
+
 
 let client = null;
 
@@ -116,6 +118,9 @@ async function handleMessage(
   topic,
   message
 ) {
+  const receivedAt =
+    new Date();
+
   // --------------------------------------------------------
   // Parse JSON
   // --------------------------------------------------------
@@ -319,8 +324,32 @@ async function handleMessage(
     normalizeTelemetry(
       data,
       topicDeviceId,
-      assignedShipmentId
+      assignedShipmentId,
+      receivedAt
     );
+
+
+  if (
+    normalizedTelemetry.gpsValid
+  ) {
+    try {
+      normalizedTelemetry.location =
+        await reverseGeocodeLocation({
+          latitude:
+            normalizedTelemetry.latitude,
+          longitude:
+            normalizedTelemetry.longitude,
+          previousLocation:
+            device.lastLocation,
+          receivedAt,
+        });
+    } catch (error) {
+      console.warn(
+        `[MQTT] Reverse geocoding failed for ${topicDeviceId} #${normalizedTelemetry.sequenceNumber}:`,
+        error.message
+      );
+    }
+  }
 
 
   // --------------------------------------------------------
@@ -344,7 +373,7 @@ async function handleMessage(
   // Useful backend ingestion metadata
 
   normalizedTelemetry.receivedAt =
-    new Date().toISOString();
+    receivedAt.toISOString();
 
 
   normalizedTelemetry.ingestionSource =
@@ -484,20 +513,45 @@ async function handleMessage(
   // --------------------------------------------------------
 
   if (
-    typeof
-      normalizedTelemetry.latitude ===
-      "number" &&
-    typeof
-      normalizedTelemetry.longitude ===
-      "number"
+    normalizedTelemetry.gpsValid &&
+    normalizedTelemetry.latitude !== null &&
+    normalizedTelemetry.longitude !== null
   ) {
     deviceUpdate.lastLocation = {
       latitude:
         normalizedTelemetry.latitude,
-
       longitude:
         normalizedTelemetry.longitude,
-
+      gpsValid:
+        true,
+      satelliteCount:
+        normalizedTelemetry.satelliteCount,
+      hdop:
+        normalizedTelemetry.hdop,
+      accuracy:
+        normalizedTelemetry.accuracy,
+      locality:
+        normalizedTelemetry.location?.locality ?? null,
+      city:
+        normalizedTelemetry.location?.city ?? null,
+      district:
+        normalizedTelemetry.location?.district ?? null,
+      state:
+        normalizedTelemetry.location?.state ?? null,
+      country:
+        normalizedTelemetry.location?.country ?? null,
+      countryCode:
+        normalizedTelemetry.location?.countryCode ?? null,
+      displayName:
+        normalizedTelemetry.location?.displayName ?? null,
+      timeSource:
+        normalizedTelemetry.timeSource,
+      clockValid:
+        normalizedTelemetry.clockValid,
+      timestamp:
+        normalizedTelemetry.timestamp.toISOString(),
+      receivedAt:
+        normalizedTelemetry.receivedAt,
       updatedAt:
         nowIso,
     };

@@ -135,7 +135,9 @@ router.get(
       const shipment = await getShipmentForUser(req.params.shipmentId.trim(), req.user.uid, req.user.role);
       if (!shipment) return res.status(404).json({ detail: "Shipment not found or access denied" });
 
-      const telemetry = await getLatestTelemetryByShipment(req.params.shipmentId.trim());
+      const telemetry = await getLatestTelemetryByShipment(
+        shipment.shipmentId
+      );
       if (!telemetry) return res.status(404).json({ detail: "Telemetry not found" });
       return res.json(telemetry);
     } catch (error) {
@@ -160,7 +162,7 @@ router.get(
       if (!shipment) return res.status(404).json({ detail: "Shipment not found or access denied" });
 
       const telemetry = await getTelemetryHistoryByShipment(
-        req.params.shipmentId.trim(),
+        shipment.shipmentId,
         parsed.filters
       );
       return res.json(telemetry);

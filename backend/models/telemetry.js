@@ -1,61 +1,165 @@
-export function validateReading(data) {
+const SHIPMENT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
+const DEVICE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
+const MIN_DEVICE_TIMESTAMP = new Date("2020-01-01T00:00:00.000Z").getTime();
+const MAX_FUTURE_CLOCK_SKEW_MS = 5 * 60 * 1000;
+
+function isObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function parseTimestamp(value) {
+  if (value instanceof Date) {
+    return Number.isFinite(value.getTime()) ? value : null;
+  }
+
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const date = new Date(value);
+    return Number.isFinite(date.getTime()) ? date : null;
+  }
+
+  if (typeof value === "string" && value.trim()) {
+    const date = new Date(value);
+    return Number.isFinite(date.getTime()) ? date : null;
+  }
+
+  return null;
+}
+
+function isPlausibleDeviceTimestamp(date, receivedAt) {
+  return (
+    date.getTime() >= MIN_DEVICE_TIMESTAMP &&
+    date.getTime() <= receivedAt.getTime() + MAX_FUTURE_CLOCK_SKEW_MS
+  );
+}
+
+function normalizeOptionalInteger(value, minimum = 0, maximum = Number.MAX_SAFE_INTEGER) {
+  if (!Number.isInteger(value) || value < minimum || value > maximum) return null;
+  return value;
+}
+
+function normalizeOptionalNumber(value, minimum = 0, maximum = Number.MAX_VALUE) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < minimum || value > maximum) {
+    return null;
+  }
+  return value;
+}
+
+function cloneOptionalObject(value) {
+  return isObject(value) ? { ...value } : null;
+}
+
+export function normalizeGps(data = {}) {
+  const gps = isObject(data.gps) ? data.gps : {};
+  const rawLatitude = data.latitude ?? gps.latitude;
+  const rawLongitude = data.longitude ?? gps.longitude;
+  const latitude = normalizeOptionalNumber(rawLatitude, -90, 90);
+  const longitude = normalizeOptionalNumber(rawLongitude, -180, 180);
+  const coordinatesValid = latitude !== null && longitude !== null;
+  const reportedValidity = data.gpsValid ?? gps.valid;
+  const gpsValid =
+    typeof reportedValidity === "boolean"
+      ? reportedValidity && coordinatesValid
+      : coordinatesValid;
+
+  return {
+    latitude: gpsValid ? latitude : null,
+    longitude: gpsValid ? longitude : null,
+    gpsValid,
+    satelliteCount: normalizeOptionalInteger(data.satelliteCount ?? gps.satelliteCount ?? data.satellites, 0, 99),
+    hdop: normalizeOptionalNumber(data.hdop ?? gps.hdop, 0.1, 99),
+    accuracy: normalizeOptionalNumber(
+      data.accuracy ??
+        data.gpsAccuracy ??
+        data.accuracyMeters ??
+        gps.accuracy ??
+        gps.accuracyMeters,
+      0,
+      100000
+    ),
+  };
+}
+
+export function resolveTelemetryTimestamp(data = {}, receivedAt = new Date(), gpsValid = false) {
+  const serverTime = parseTimestamp(receivedAt) || new Date();
+  const gpsTimestamp = parseTimestamp(
+    data.gpsTimestamp ?? data.gpsTime ?? data.gps?.timestamp ?? data.gps?.time
+  );
+  const rtcTimestamp = parseTimestamp(
+    data.rtcTimestamp ?? data.rtcTime ?? data.rtc?.timestamp ?? data.rtc?.time ?? data.timestamp
+  );
+  const candidates = [
+    { source: "GPS", date: gpsValid ? gpsTimestamp : null, reason: gpsValid ? null : "gps_fix_invalid" },
+    { source: "RTC", date: rtcTimestamp, reason: null },
+  ];
+
+  for (const candidate of candidates) {
+    if (!candidate.date) continue;
+    if (isPlausibleDeviceTimestamp(candidate.date, serverTime)) {
+      return {
+        timestamp: candidate.date,
+        deviceTimestamp: candidate.date.toISOString(),
+        timeSource: candidate.source,
+        clockValid: true,
+        clockFallbackReason: null,
+      };
+    }
+
+    candidate.reason =
+      candidate.date.getTime() < MIN_DEVICE_TIMESTAMP
+        ? "timestamp_out_of_range"
+        : "timestamp_in_future";
+  }
+
+  const failedGps = gpsValid && !gpsTimestamp;
+  const failedRtc = !rtcTimestamp;
+  const lastReason = candidates[1].reason || candidates[0].reason;
+
+  return {
+    timestamp: serverTime,
+    deviceTimestamp: null,
+    timeSource: "SERVER",
+    clockValid: false,
+    clockFallbackReason: failedGps || failedRtc ? "missing" : lastReason,
+  };
+}
+
+export function validateReading(data = {}) {
   const errors = [];
 
-  // ========================================================
-  // Identity
-  // ========================================================
+  if (!isObject(data)) {
+    return ["payload must be a JSON object"];
+  }
 
   if (
     typeof data.deviceId !== "string" ||
-    !data.deviceId.trim()
+    !DEVICE_ID_PATTERN.test(data.deviceId)
   ) {
-    errors.push("deviceId required");
+    errors.push("invalid deviceId");
   }
 
-  // ========================================================
-  // Sequence
-  // ========================================================
-
-  if (
-    !Number.isInteger(data.sequenceNumber) ||
-    data.sequenceNumber < 1
-  ) {
-    errors.push(
-      "sequenceNumber must be a positive integer"
-    );
+  if (!Number.isInteger(data.sequenceNumber) || data.sequenceNumber <= 0) {
+    errors.push("sequenceNumber must be a positive integer");
   }
 
-  // ========================================================
-  // Temperature
-  // ========================================================
-
-  if (
-    typeof data.temperature !== "number" ||
-    !Number.isFinite(data.temperature)
-  ) {
-    errors.push(
-      "temperature must be a number"
-    );
+  for (const field of ["temperature", "humidity", "battery"]) {
+    if (
+      typeof data[field] !== "number" ||
+      !Number.isFinite(data[field])
+    ) {
+      errors.push(`${field} must be a finite number`);
+    }
   }
 
-  // ========================================================
-  // Humidity
-  // ========================================================
-
   if (
-    typeof data.humidity !== "number" ||
-    !Number.isFinite(data.humidity) ||
+    data.temperature < -100 ||
+    data.temperature > 300 ||
     data.humidity < 0 ||
-    data.humidity > 100
+    data.humidity > 100 ||
+    data.battery < 0 ||
+    data.battery > 100
   ) {
-    errors.push(
-      "humidity must be 0-100"
-    );
+    errors.push("sensor value out of range");
   }
-
-  // ========================================================
-  // Gas
-  // ========================================================
 
   if (
     data.gasLevel !== undefined &&
@@ -65,112 +169,17 @@ export function validateReading(data) {
       data.gasLevel < 0
     )
   ) {
-    errors.push(
-      "gasLevel must be a non-negative number"
-    );
+    errors.push("gasLevel must be a non-negative finite number");
   }
 
-  // ========================================================
-  // Battery
-  // ========================================================
-
   if (
-    typeof data.battery !== "number" ||
-    !Number.isFinite(data.battery) ||
-    data.battery < 0 ||
-    data.battery > 100
-  ) {
-    errors.push(
-      "battery must be 0-100"
-    );
-  }
-
-  // ========================================================
-  // GPS
-  // ========================================================
-
-  if (
-    data.latitude !== undefined &&
+    data.shipmentId !== undefined &&
     (
-      typeof data.latitude !== "number" ||
-      data.latitude < -90 ||
-      data.latitude > 90
+      typeof data.shipmentId !== "string" ||
+      !SHIPMENT_ID_PATTERN.test(data.shipmentId)
     )
   ) {
-    errors.push(
-      "invalid latitude"
-    );
-  }
-
-  if (
-    data.longitude !== undefined &&
-    (
-      typeof data.longitude !== "number" ||
-      data.longitude < -180 ||
-      data.longitude > 180
-    )
-  ) {
-    errors.push(
-      "invalid longitude"
-    );
-  }
-
-  if (
-    (
-      data.latitude !== undefined &&
-      data.longitude === undefined
-    ) ||
-    (
-      data.longitude !== undefined &&
-      data.latitude === undefined
-    )
-  ) {
-    errors.push(
-      "latitude and longitude must be provided together"
-    );
-  }
-
-  // ========================================================
-  // Timestamp
-  // ========================================================
-
-  if (
-    !data.timestamp ||
-    Number.isNaN(
-      Date.parse(data.timestamp)
-    )
-  ) {
-    errors.push(
-      "invalid timestamp"
-    );
-  }
-
-  // ========================================================
-  // Optional health structures
-  // ========================================================
-
-  if (
-    data.sensorHealth !== undefined &&
-    (
-      typeof data.sensorHealth !== "object" ||
-      Array.isArray(data.sensorHealth)
-    )
-  ) {
-    errors.push(
-      "sensorHealth must be an object"
-    );
-  }
-
-  if (
-    data.connectivity !== undefined &&
-    (
-      typeof data.connectivity !== "object" ||
-      Array.isArray(data.connectivity)
-    )
-  ) {
-    errors.push(
-      "connectivity must be an object"
-    );
+    errors.push("invalid shipmentId");
   }
 
   return errors;
@@ -178,50 +187,40 @@ export function validateReading(data) {
 
 export function normalizeTelemetry(
   data,
-  authoritativeDeviceId = data.deviceId,
-  authoritativeShipmentId = data.shipmentId ?? null
+  verifiedDeviceId,
+  authoritativeShipmentId = data?.shipmentId ?? null,
+  receivedAt = new Date()
 ) {
+  const serverTime = parseTimestamp(receivedAt) || new Date();
+  const gps = normalizeGps(data);
+  const resolvedTimestamp = resolveTelemetryTimestamp(data, serverTime, gps.gpsValid);
+
   return {
-    deviceId: authoritativeDeviceId,
-
-    // IMPORTANT
-    sequenceNumber: Number(data.sequenceNumber),
-
-    shipmentId: authoritativeShipmentId,
-
-    temperature:
-      data.temperature != null
-        ? Number(data.temperature)
-        : null,
-
-    humidity:
-      data.humidity != null
-        ? Number(data.humidity)
-        : null,
-
-    gasLevel:
-      data.gasLevel != null
-        ? Number(data.gasLevel)
-        : null,
-
-    battery:
-      data.battery != null
-        ? Number(data.battery)
-        : null,
-
-    latitude:
-      data.latitude != null
-        ? Number(data.latitude)
-        : null,
-
-    longitude:
-      data.longitude != null
-        ? Number(data.longitude)
-        : null,
-
-    timestamp:
-      data.timestamp
-        ? new Date(data.timestamp)
-        : new Date(),
+    deviceId: verifiedDeviceId,
+    sequenceNumber: data.sequenceNumber,
+    shipmentId: authoritativeShipmentId || null,
+    temperature: data.temperature,
+    humidity: data.humidity,
+    gasLevel: typeof data.gasLevel === "number" && Number.isFinite(data.gasLevel)
+      ? data.gasLevel
+      : null,
+    battery: data.battery,
+    latitude: gps.latitude,
+    longitude: gps.longitude,
+    gpsValid: gps.gpsValid,
+    satelliteCount: gps.satelliteCount,
+    hdop: gps.hdop,
+    accuracy: gps.accuracy,
+    timestamp: resolvedTimestamp.timestamp,
+    deviceTimestamp: resolvedTimestamp.deviceTimestamp,
+    timeSource: resolvedTimestamp.timeSource,
+    clockValid: resolvedTimestamp.clockValid,
+    clockFallbackReason: resolvedTimestamp.clockFallbackReason,
+    firmware: typeof data.firmware === "string" ? data.firmware : data.firmwareVersion ?? null,
+    sensorHealth: cloneOptionalObject(data.sensorHealth),
+    connectivity: cloneOptionalObject(data.connectivity),
+    deviceOffline: data.deviceOffline === true,
+    tamperDetected: data.tamperDetected === true,
+    location: null,
   };
 }

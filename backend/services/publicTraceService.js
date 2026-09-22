@@ -24,7 +24,25 @@ export async function getPublicTraceByTrackingId(trackingId) {
 
   const latestTelemetry = await telemetryCollection.findOne(
     { shipmentId },
-    { sort: { timestamp: -1 }, projection: { temperature: 1, humidity: 1, gasLevel: 1, battery: 1, timestamp: 1 } }
+    {
+      sort: { timestamp: -1 },
+      projection: {
+        temperature: 1,
+        humidity: 1,
+        gasLevel: 1,
+        battery: 1,
+        latitude: 1,
+        longitude: 1,
+        gpsValid: 1,
+        satelliteCount: 1,
+        hdop: 1,
+        accuracy: 1,
+        timeSource: 1,
+        clockValid: 1,
+        location: 1,
+        timestamp: 1,
+      },
+    }
   );
 
   const { getShipmentEnvironmentSummary } = await import("./environmentSummaryService.js");
@@ -95,6 +113,15 @@ export async function getPublicTraceByTrackingId(trackingId) {
       humidity: latestTelemetry.humidity ?? null,
       gasLevel: latestTelemetry.gasLevel ?? null,
       battery: latestTelemetry.battery ?? null,
+      latitude: latestTelemetry.latitude ?? null,
+      longitude: latestTelemetry.longitude ?? null,
+      gpsValid: latestTelemetry.gpsValid ?? false,
+      satelliteCount: latestTelemetry.satelliteCount ?? null,
+      hdop: latestTelemetry.hdop ?? null,
+      accuracy: latestTelemetry.accuracy ?? null,
+      timeSource: latestTelemetry.timeSource ?? "SERVER",
+      clockValid: latestTelemetry.clockValid ?? false,
+      location: latestTelemetry.location ?? null,
       timestamp: latestTelemetry.timestamp ?? null,
     };
   } else if (hasDevice && !latestTelemetry) {

@@ -31,4 +31,25 @@ export const config = Object.freeze({
   blockchainPrivateKey: process.env.BLOCKCHAIN_PRIVATE_KEY?.trim() || "",
   blockchainContractAddress: process.env.BLOCKCHAIN_CONTRACT_ADDRESS?.trim() || "",
   blockchainNetwork: process.env.BLOCKCHAIN_NETWORK?.trim() || "mock",
+  geocodingEnabled: process.env.GEOCODING_ENABLED === "true",
+  geocodingEndpoint:
+    process.env.GEOCODING_ENDPOINT?.trim() ||
+    "https://nominatim.openstreetmap.org/reverse",
+  geocodingUserAgent: process.env.GEOCODING_USER_AGENT?.trim() || "",
+  geocodingTimeoutMs: Math.max(
+    1000,
+    Number.parseInt(process.env.GEOCODING_TIMEOUT_MS || "5000", 10) || 5000
+  ),
+  geocodingMovementMeters: Math.max(
+    0,
+    Number.parseInt(process.env.GEOCODING_MIN_MOVEMENT_METERS || "100", 10) || 100
+  ),
+  geocodingCacheTtlMs: Math.max(
+    60000,
+    Number.parseInt(process.env.GEOCODING_CACHE_TTL_MS || "86400000", 10) || 86400000
+  ),
+  geocodingCacheMaxEntries: Math.max(
+    1,
+    Number.parseInt(process.env.GEOCODING_CACHE_MAX_ENTRIES || "500", 10) || 500
+  ),
 });

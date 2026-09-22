@@ -23,6 +23,7 @@ test("simulator readings pass validateReading", () => {
   for (const [name, values] of Object.entries(scenarios)) {
     const reading = {
       deviceId: "DEV001",
+      sequenceNumber: 1,
       shipmentId: "c9d67426-21e0-4e71-a9b1-72f7808cc6f9",
       timestamp: new Date().toISOString(),
       latitude: 25.3176,

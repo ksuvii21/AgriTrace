@@ -3,6 +3,7 @@ import { getCollection } from "../core/mongo.js";
 import { Role } from "../core/roles.js";
 import { SHIPMENT_STATUS, ALLOWED_STATUS_TRANSITIONS } from "../utils/constants.js";
 import { addTimelineEvent } from "./timelineService.js";
+import { getLatestTelemetryByShipment } from "./telemetryService.js";
 import { buildShipmentAccessFilter, canAccessShipment } from "../core/accessControl.js";
 
 export function validateThresholds(thresholds) {
@@ -432,7 +433,11 @@ export async function getShipmentForUser(shipmentId, uid, role) {
 
   if (!shipment) return null;
 
-  return sanitizeShipment(shipment);
+  const latestTelemetry = await getLatestTelemetryByShipment(shipment.shipmentId);
+  return {
+    ...sanitizeShipment(shipment),
+    latestTelemetry: latestTelemetry ?? null,
+  };
 }
 
 export async function getShipment(shipmentId, uid = null, role = null) {

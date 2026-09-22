@@ -440,6 +440,8 @@ const battery =
   telemetry?.batteryPercent ??
   null;
 
+const placeName = telemetry?.location?.displayName || null;
+
 const telemetryTime =
   telemetry?.timestamp ||
   telemetry?.createdAt ||

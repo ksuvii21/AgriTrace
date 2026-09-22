@@ -8,6 +8,7 @@ import { SHIPMENT_STATUS, ALLOWED_STATUS_TRANSITIONS } from "../utils/constants.
 test("validateReading accepts valid reading", () => {
   const errors = validateReading({
     deviceId: "DEV001",
+    sequenceNumber: 1,
     temperature: 25,
     humidity: 55,
     battery: 80,
@@ -19,15 +20,16 @@ test("validateReading accepts valid reading", () => {
   assert.equal(errors.length, 0);
 });
 
-test("validateReading rejects invalid timestamp", () => {
+test("accepts invalid device timestamps and falls back during normalization", () => {
   const errors = validateReading({
     deviceId: "DEV001",
+    sequenceNumber: 1,
     temperature: 25,
     humidity: 55,
     battery: 80,
     timestamp: "not-a-date",
   });
-  assert.ok(errors.some((e) => e.includes("timestamp")));
+  assert.deepEqual(errors, []);
 });
 
 test("validateReading rejects missing deviceId", () => {
@@ -36,50 +38,54 @@ test("validateReading rejects missing deviceId", () => {
     humidity: 55,
     battery: 80,
   });
-  assert.ok(errors.includes("deviceId required"));
+  assert.ok(errors.includes("invalid deviceId"));
 });
 
 test("validateReading rejects invalid humidity", () => {
   const errors = validateReading({
     deviceId: "DEV001",
+    sequenceNumber: 1,
     temperature: 25,
     humidity: 150,
     battery: 80,
   });
-  assert.ok(errors.some((e) => e.includes("humidity")));
+  assert.ok(errors.includes("sensor value out of range"));
 });
 
 test("validateReading rejects invalid battery", () => {
   const errors = validateReading({
     deviceId: "DEV001",
+    sequenceNumber: 1,
     temperature: 25,
     humidity: 55,
     battery: -5,
   });
-  assert.ok(errors.some((e) => e.includes("battery")));
+  assert.ok(errors.includes("sensor value out of range"));
 });
 
-test("validateReading rejects missing lat/lng pair", () => {
-  const errors = validateReading({
+test("keeps telemetry when GPS is incomplete and marks the fix invalid", () => {
+  const data = {
     deviceId: "DEV001",
+    sequenceNumber: 1,
     temperature: 25,
     humidity: 55,
     battery: 80,
     latitude: 25.3,
-  });
-  assert.ok(errors.some((e) => e.includes("latitude and longitude")));
+  };
+  assert.deepEqual(validateReading(data), []);
 });
 
-test("validateReading rejects latitude out of range", () => {
-  const errors = validateReading({
+test("keeps telemetry when GPS coordinates are out of range", () => {
+  const data = {
     deviceId: "DEV001",
+    sequenceNumber: 1,
     temperature: 25,
     humidity: 55,
     battery: 80,
     latitude: 95,
     longitude: 82.9,
-  });
-  assert.ok(errors.some((e) => e.includes("latitude")));
+  };
+  assert.deepEqual(validateReading(data), []);
 });
 
 test("parseTelemetryTopic accepts valid topic", () => {
