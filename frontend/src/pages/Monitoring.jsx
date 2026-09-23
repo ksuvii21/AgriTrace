@@ -694,6 +694,7 @@ setHistory({
             <th>Gas Level</th>
             <th>Battery</th>
             <th>Sequence</th>
+            <th>Source</th>
           </tr>
         </thead>
 
@@ -730,6 +731,41 @@ setHistory({
 
               <td>
                 {row.sequenceNumber ?? "—"}
+              </td>
+
+              <td>
+                {row.transmission?.source === "SD_SYNC" ? (
+                  <span
+                    title={
+                      row.transmission?.offlineDurationMs != null
+                        ? `Captured offline, synced after ~${Math.round(row.transmission.offlineDurationMs / 1000)}s`
+                        : "Captured offline, synced from microSD"
+                    }
+                    style={{
+                      padding: "2px 8px",
+                      borderRadius: "10px",
+                      fontSize: "0.75rem",
+                      background: "#fef3c7",
+                      color: "#92400e",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    SD_SYNC
+                  </span>
+                ) : (
+                  <span
+                    style={{
+                      padding: "2px 8px",
+                      borderRadius: "10px",
+                      fontSize: "0.75rem",
+                      background: "#dcfce7",
+                      color: "#166534",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {row.transmission?.source || "LIVE"}
+                  </span>
+                )}
               </td>
             </tr>
           ))}

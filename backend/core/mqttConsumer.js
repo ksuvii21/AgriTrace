@@ -12,7 +12,11 @@ import {broadcastToShipment,broadcastToAll,} from "./websocket.js";
 
 import { config } from "./config.js";
 
-import {generateTelemetryHash,} from "../services/integrityService.js";
+import {generateTelemetryHash,}
+  from "../services/integrityService.js";
+
+import {resolvePreviousHash,}
+  from "../services/integrityService.js";
 
 import {reverseGeocodeLocation,} from "../services/geocodingService.js";
 
@@ -28,6 +32,43 @@ let lastShipmentMismatchWarning = "";
 
 function getAckTopic(deviceId) {
   return `agr/devices/${deviceId}/ack`;
+}
+
+
+// ==========================================================
+// PARSE OPTIONAL PAYLOAD DATE
+// ==========================================================
+
+// Returns a Date for a valid timestamp-ish value, otherwise null.
+// Used for optional firmware fields (transmittedAt, queuedAt) without
+// throwing on malformed input.
+
+function parsePayloadDate(value) {
+  if (value instanceof Date) {
+    return Number.isFinite(value.getTime()) ? value : null;
+  }
+
+  if (
+    typeof value === "number" &&
+    Number.isFinite(value)
+  ) {
+    const date = new Date(value);
+    return Number.isFinite(date.getTime())
+      ? date
+      : null;
+  }
+
+  if (
+    typeof value === "string" &&
+    value.trim()
+  ) {
+    const date = new Date(value);
+    return Number.isFinite(date.getTime())
+      ? date
+      : null;
+  }
+
+  return null;
 }
 
 
@@ -353,13 +394,52 @@ async function handleMessage(
 
 
   // --------------------------------------------------------
-  // Integrity metadata
+  // Integrity metadata (SHA-256 + tamper-evident chain)
   // --------------------------------------------------------
+
+  const telemetryCollection =
+    getTelemetryCollection();
 
   normalizedTelemetry.dataHash =
     generateTelemetryHash(
       normalizedTelemetry
     );
+
+  // Hash chaining: link this reading to the previous reading for the same
+  // device (by sequenceNumber). This is a normal DB hash chain used to make
+  // gaps/mutations detectable. It is NOT a blockchain; the periodic shipment
+  // checkpoints remain the actual anchor committed via blockchainService.
+
+  const previousReading =
+    await telemetryCollection
+      .findOne(
+        {
+          deviceId: topicDeviceId,
+          sequenceNumber: {
+            $lt:
+              normalizedTelemetry.sequenceNumber,
+          },
+        },
+        {
+          sort: {
+            sequenceNumber: -1,
+          },
+        }
+      );
+
+
+  normalizedTelemetry.previousHash =
+    resolvePreviousHash(
+      previousReading
+    );
+
+
+  normalizedTelemetry.previousSequenceNumber =
+    Number.isInteger(
+      previousReading?.sequenceNumber
+    )
+      ? previousReading.sequenceNumber
+      : null;
 
 
   normalizedTelemetry.checkpointId =
@@ -380,15 +460,54 @@ async function handleMessage(
     "MQTT";
 
 
+  // --------------------------------------------------------
+  // Offline-first transmission metadata
+  // --------------------------------------------------------
+
+  const transmittedAt =
+    parsePayloadDate(
+      data.transmittedAt ??
+        data.transmission?.transmittedAt
+    );
+
+  if (
+    normalizedTelemetry.transmission
+  ) {
+    if (
+      normalizedTelemetry
+        .transmission.source ===
+      "SD_SYNC"
+    ) {
+      normalizedTelemetry
+        .transmission.syncStatus =
+        "SYNCED";
+
+      normalizedTelemetry
+        .transmission.syncedAt =
+        receivedAt;
+    }
+
+    if (
+      transmittedAt &&
+      !normalizedTelemetry
+        .transmission.transmittedAt
+    ) {
+      normalizedTelemetry
+        .transmission.transmittedAt =
+        transmittedAt;
+    }
+  }
+
   // ========================================================
   // STORE TELEMETRY + DEDUPLICATE
   // ========================================================
 
-  const telemetryCollection =
-    getTelemetryCollection();
-
-
   try {
+    // Deduplication is enforced by the compound unique index on
+    // { deviceId, sequenceNumber }. An SD-synchronized replay of a reading
+    // the backend already holds therefore throws E11000 and is ACKed as a
+    // duplicate — which the firmware treats as safely stored.
+
     await telemetryCollection.insertOne({
       ...normalizedTelemetry,
 
@@ -415,7 +534,11 @@ async function handleMessage(
 
       // Important:
       // ACK duplicates as accepted, because the firmware
-      // may simply have missed the previous ACK.
+      // may simply have missed the previous ACK, OR it may be
+      // replaying an SD record the backend already stored.
+      // Either way the backend already has this deviceId +
+      // sequenceNumber, so it is safe for the firmware to
+      // clear the matching microSD record.
 
       publishTelemetryAck(
         topicDeviceId,
@@ -425,6 +548,45 @@ async function handleMessage(
           duplicate: true,
         }
       );
+
+
+      // If this was an SD replay, still refresh sync-health so the
+      // dashboard does not show a stale backlog after a post-restart
+      // replay that hit an already-stored reading.
+
+      if (
+        normalizedTelemetry.transmission
+          ?.source === "SD_SYNC"
+      ) {
+        try {
+          await getCollection(
+            "devices"
+          ).updateOne(
+            {
+              deviceId:
+                topicDeviceId,
+            },
+            {
+              $set: {
+                lastSuccessfulSyncAt:
+                  new Date().toISOString(),
+
+                lastSyncedSequence:
+                  normalizedTelemetry
+                    .sequenceNumber,
+
+                lastSyncSource:
+                  "SD_SYNC",
+              },
+            }
+          );
+        } catch (syncError) {
+          console.error(
+            `[MQTT] Failed updating sync health for duplicate SD replay ${topicDeviceId} #${normalizedTelemetry.sequenceNumber}:`,
+            syncError.message
+          );
+        }
+      }
 
 
       return;
@@ -471,7 +633,74 @@ async function handleMessage(
     connectivity:
       normalizedTelemetry.connectivity ||
       null,
+
+    // ------------------------------------------------------
+    // Device / sync health
+    // ------------------------------------------------------
+
+    lastSyncSource:
+      normalizedTelemetry.transmission
+        ?.source ?? "LIVE",
+
+    connectivityState:
+      normalizedTelemetry.connectivity
+        ?.state ?? null,
+
+    mqttStatus:
+      normalizedTelemetry.connectivity
+        ?.mqttStatus ??
+      "CONNECTED",
+
+    sdCardStatus:
+      normalizedTelemetry.connectivity
+        ?.sdCardStatus ??
+      normalizedTelemetry.connectivity
+        ?.sdStatus ?? null,
   };
+
+
+  // Only advance lastSuccessfulSyncAt when the reading is confirmed
+  // stored. This is what the dashboard surfaces as "last sync".
+
+  if (
+    normalizedTelemetry.transmission
+      ?.source === "SD_SYNC"
+  ) {
+    deviceUpdate.lastSuccessfulSyncAt =
+      nowIso;
+
+
+    deviceUpdate.lastSyncedSequence =
+      normalizedTelemetry
+        .sequenceNumber;
+  }
+
+
+  // Firmware-reported backlog (how many SD records are still pending
+  // upload). Reported opportunistically; not required.
+
+  const pendingOfflineRecords =
+    normalizedTelemetry.connectivity
+      ?.pendingOfflineRecords;
+
+
+  if (
+    Number.isInteger(
+      pendingOfflineRecords
+    ) &&
+    pendingOfflineRecords >= 0
+  ) {
+    deviceUpdate.pendingOfflineRecords =
+      pendingOfflineRecords;
+  }
+
+
+  if (
+    normalizedTelemetry.firmware
+  ) {
+    deviceUpdate.firmwareVersion =
+      normalizedTelemetry.firmware;
+  }
 
 
   // --------------------------------------------------------
@@ -711,6 +940,11 @@ async function handleMessage(
   //
   // This lets firmware safely clear its offline queue.
 
+  // ACK is only sent for SD_SYNC readings after the reading is durably
+  // stored. The firmware treats this ACK as permission to delete the matching
+  // microSD record (deviceId + sequenceNumber). A duplicate ACK is equally
+  // safe: the backend already has that reading.
+
   publishTelemetryAck(
     topicDeviceId,
     normalizedTelemetry.sequenceNumber,
@@ -731,6 +965,12 @@ async function handleMessage(
         normalizedTelemetry.shipmentId
           ? ` -> shipment ${normalizedTelemetry.shipmentId}`
           : " -> unassigned"
+      ) +
+      (
+        normalizedTelemetry.transmission
+          ?.source === "SD_SYNC"
+          ? " (SD_SYNC)"
+          : ""
       )
   );
 

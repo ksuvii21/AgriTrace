@@ -182,7 +182,133 @@ export function validateReading(data = {}) {
     errors.push("invalid shipmentId");
   }
 
+  // Optional offline-first transmission metadata (backward compatible).
+  errors.push(...validateTransmission(data));
+
   return errors;
+}
+
+const TRANSMISSION_SOURCES = new Set(["LIVE", "SD_SYNC"]);
+const SYNC_STATUSES = new Set([
+  "LIVE",
+  "PENDING",
+  "SYNCED",
+  "SYNC_FAILED",
+]);
+
+// ==========================================================
+// OFFLINE-FIRST TRANSMISSION METADATA
+// ==========================================================
+
+// The firmware tells us (via the payload) whether this reading is being
+// streamed live or has just been flushed from the microSD backlog.
+//
+// We stay fully backward compatible: a legacy payload that never sets any
+// of this simply becomes a LIVE reading.
+
+function detectTransmissionSource(data) {
+  const raw = data?.transmission;
+  const explicit =
+    (isObject(raw) && typeof raw.source === "string" && raw.source) ||
+    (typeof data?.transmissionSource === "string" && data.transmissionSource) ||
+    (typeof data?.source === "string" && data.source) ||
+    null;
+
+  if (explicit) {
+    const upper = String(explicit).toUpperCase();
+    if (TRANSMISSION_SOURCES.has(upper)) return upper;
+  }
+
+  // Fallbacks the firmware might use to signal an SD replay.
+  if (data?.storedOffline === true || data?.offlineBacklog === true || data?.sdSync === true) {
+    return "SD_SYNC";
+  }
+
+  return "LIVE";
+}
+
+function normalizeSyncStatus(value, fallback) {
+  if (typeof value !== "string") return fallback;
+  const upper = value.toUpperCase();
+  return SYNC_STATUSES.has(upper) ? upper : fallback;
+}
+
+export function normalizeTransmission(data = {}, receivedAt = new Date()) {
+  const raw = isObject(data.transmission) ? data.transmission : {};
+  const source = detectTransmissionSource(data);
+  const storedOffline =
+    source === "SD_SYNC" ||
+    raw.storedOffline === true ||
+    data.storedOffline === true;
+
+  // When the backend accepts an SD-synchronized reading it is stored, so its
+  // syncStatus is SYNCED. Live readings are simply LIVE.
+  const defaultStatus = source === "SD_SYNC" ? "SYNCED" : "LIVE";
+  const syncStatus = normalizeSyncStatus(
+    raw.syncStatus ?? data.syncStatus,
+    defaultStatus
+  );
+
+  // capturedAt is the moment the sensor captured the reading on-device.
+  // We prefer the firmware-provided capturedAt and fall back to the
+  // resolved device timestamp so the value is always meaningful.
+  const capturedAt =
+    parseTimestamp(raw.capturedAt ?? data.capturedAt) ||
+    parseTimestamp(data.deviceTimestamp)
+      ? new Date(parseTimestamp(raw.capturedAt ?? data.capturedAt) || parseTimestamp(data.deviceTimestamp))
+      : null;
+
+  // How long the record waited on the microSD before it reached the backend.
+  let offlineDurationMs = null;
+  if (typeof raw.offlineDurationMs === "number" && Number.isFinite(raw.offlineDurationMs)) {
+    offlineDurationMs = Math.max(0, Math.round(raw.offlineDurationMs));
+  } else if (storedOffline && capturedAt) {
+    const delta = parseTimestamp(receivedAt).getTime() - capturedAt.getTime();
+    if (Number.isFinite(delta) && delta >= 0) offlineDurationMs = delta;
+  }
+
+  const queuedAt = parseTimestamp(raw.queuedAt ?? data.queuedAt) || null;
+  const syncedAt =
+    source === "SD_SYNC" ? parseTimestamp(receivedAt) : null;
+
+  return {
+    source,
+    storedOffline,
+    syncStatus,
+    queuedAt,
+    capturedAt,
+    syncedAt,
+    offlineDurationMs,
+  };
+}
+
+export function validateTransmission(data = {}) {
+  const errors = [];
+  const raw = isObject(data.transmission) ? data.transmission : {};
+  const source = raw.source ?? data.transmissionSource ?? data.source;
+
+  if (
+    source !== undefined &&
+    typeof source === "string" &&
+    !TRANSMISSION_SOURCES.has(source.toUpperCase())
+  ) {
+    errors.push("invalid transmission.source");
+  }
+
+  const syncStatus = raw.syncStatus ?? data.syncStatus;
+  if (
+    syncStatus !== undefined &&
+    typeof syncStatus === "string" &&
+    !SYNC_STATUSES.has(syncStatus.toUpperCase())
+  ) {
+    errors.push("invalid transmission.syncStatus");
+  }
+
+  return errors;
+}
+
+function cloneTransmission(raw) {
+  return isObject(raw) ? { ...raw } : {};
 }
 
 export function normalizeTelemetry(
@@ -194,6 +320,14 @@ export function normalizeTelemetry(
   const serverTime = parseTimestamp(receivedAt) || new Date();
   const gps = normalizeGps(data);
   const resolvedTimestamp = resolveTelemetryTimestamp(data, serverTime, gps.gpsValid);
+
+  // Resolve once so the timestamp resolver sees the device-provided capture
+  // time even when it arrives nested under `transmission.capturedAt`.
+  const transmission = normalizeTransmission(data, serverTime);
+
+  const deviceTimestamp =
+    resolvedTimestamp.deviceTimestamp ??
+    (transmission.capturedAt ? transmission.capturedAt.toISOString() : null);
 
   return {
     deviceId: verifiedDeviceId,
@@ -212,7 +346,7 @@ export function normalizeTelemetry(
     hdop: gps.hdop,
     accuracy: gps.accuracy,
     timestamp: resolvedTimestamp.timestamp,
-    deviceTimestamp: resolvedTimestamp.deviceTimestamp,
+    deviceTimestamp,
     timeSource: resolvedTimestamp.timeSource,
     clockValid: resolvedTimestamp.clockValid,
     clockFallbackReason: resolvedTimestamp.clockFallbackReason,
@@ -222,5 +356,20 @@ export function normalizeTelemetry(
     deviceOffline: data.deviceOffline === true,
     tamperDetected: data.tamperDetected === true,
     location: null,
+
+    // ------------------------------------------------------
+    // Offline-first transmission metadata
+    // ------------------------------------------------------
+    capturedAt: transmission.capturedAt,
+    transmission: {
+      ...cloneTransmission(data.transmission),
+      source: transmission.source,
+      storedOffline: transmission.storedOffline,
+      syncStatus: transmission.syncStatus,
+      queuedAt: transmission.queuedAt,
+      capturedAt: transmission.capturedAt,
+      syncedAt: transmission.syncedAt,
+      offlineDurationMs: transmission.offlineDurationMs,
+    },
   };
 }

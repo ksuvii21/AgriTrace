@@ -61,6 +61,21 @@ await collections.telemetry.createIndex({
   checkpointId: 1,
 });
 
+// Offline-first / SD-sync indexes
+await collections.telemetry.createIndex({
+  deviceId: 1,
+  "transmission.source": 1,
+});
+
+await collections.telemetry.createIndex({
+  "transmission.storedOffline": 1,
+});
+
+await collections.telemetry.createIndex({
+  deviceId: 1,
+  sequenceNumber: -1,
+});
+
   // users indexes
   await collections.users.createIndex({ uid: 1 }, { unique: true });
   await collections.users.createIndex({ email: 1 }, { unique: true, sparse: true });
@@ -73,6 +88,7 @@ await collections.telemetry.createIndex({
   await collections.devices.createIndex({ currentShipmentId: 1 });
   await collections.devices.createIndex({ status: 1 });
   await collections.devices.createIndex({ lastSeenAt: -1 });
+  await collections.devices.createIndex({ lastSuccessfulSyncAt: -1 });
 
   // shipments indexes
   await collections.shipments.createIndex({ shipmentId: 1 }, { unique: true });

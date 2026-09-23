@@ -81,6 +81,38 @@ async function buildDeviceHealthResponse(device) {
     { sort: { timestamp: -1 } }
   );
 
+  // Backlog count: SD records the backend knows are still pending, OR the
+  // number of SD_SYNC readings we have stored for this device. Either way it
+  // is a useful "is this device caught up?" signal.
+  const sdSyncedCount = await telemetryCollection.countDocuments({
+    deviceId: device.deviceId,
+    "transmission.storedOffline": true,
+  });
+
+  const syncHealth = {
+    lastTelemetrySequence: device.lastTelemetrySequence ?? null,
+    lastSyncedSequence: device.lastSyncedSequence ?? null,
+    lastSuccessfulSyncAt: device.lastSuccessfulSyncAt ?? null,
+    lastSyncSource: device.lastSyncSource ?? null,
+    pendingOfflineRecords:
+      Number.isInteger(device.pendingOfflineRecords)
+        ? device.pendingOfflineRecords
+        : null,
+    sdSyncedReadings: sdSyncedCount,
+    connectivityState: device.connectivityState ?? null,
+    mqttStatus:
+      device.mqttStatus ??
+      (device.status === "ONLINE" ? "CONNECTED" : "UNKNOWN"),
+    sdCardStatus:
+      device.sdCardStatus ??
+      device.sdStatus ??
+      null,
+    firmwareVersion:
+      device.firmwareVersion ??
+      device.firmware ??
+      null,
+  };
+
   if (!latestTelemetry) {
     return {
       deviceId: device.deviceId,
@@ -90,6 +122,7 @@ async function buildDeviceHealthResponse(device) {
       firmwareVersion: device.firmwareVersion ?? null,
       currentShipmentId: device.currentShipmentId ?? null,
       latestTelemetry: null,
+      sync: syncHealth,
     };
   }
 
@@ -113,6 +146,7 @@ async function buildDeviceHealthResponse(device) {
     firmwareVersion: device.firmwareVersion ?? null,
     currentShipmentId: device.currentShipmentId ?? null,
     latestTelemetry,
+    sync: syncHealth,
   };
 }
 
