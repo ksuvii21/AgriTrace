@@ -27,6 +27,14 @@ import {
   getDeviceTelemetryHistory,
 } from "../api/telemetryApi";
 
+import {
+  getTelemetryLocationName,
+  formatTelemetryCoordinates,
+  isValidTelemetryLocation,
+  formatTelemetryBoolean,
+  formatTelemetryTimeSource,
+} from "../utils/formatData";
+
 const REPORT_TYPES = {
   SHIPMENT: "shipment",
   DEVICE: "device",
@@ -1002,14 +1010,23 @@ const Reports = () => {
           ? `${record.battery}%`
           : "—",
 
-        record.latitude != null &&
-        record.longitude != null
-          ? `${Number(
-              record.latitude
-            ).toFixed(5)}, ${Number(
-              record.longitude
-            ).toFixed(5)}`
-          : "—",
+        isValidTelemetryLocation(record)
+          ? getTelemetryLocationName(record)
+          : "Location unavailable",
+
+        isValidTelemetryLocation(record)
+          ? formatTelemetryCoordinates(record)
+          : "GPS unavailable",
+
+        formatTelemetryBoolean(
+          record.gpsValid,
+          "Valid",
+          "Invalid"
+        ),
+
+        formatTelemetryTimeSource(
+          record.timeSource
+        ),
       ]);
 
     autoTable(doc, {
@@ -1023,6 +1040,9 @@ const Reports = () => {
           "Gas",
           "Battery",
           "Location",
+          "Coordinates",
+          "GPS",
+          "Time Source",
         ],
       ],
 
@@ -1047,17 +1067,21 @@ const Reports = () => {
       },
 
       styles: {
-        fontSize: 7,
-        cellPadding: 2,
+        fontSize: 6,
+        cellPadding: 1.5,
       },
 
       columnStyles: {
         0: {
-          cellWidth: 34,
+          cellWidth: 26,
         },
 
         5: {
-          cellWidth: 38,
+          cellWidth: 26,
+        },
+
+        6: {
+          cellWidth: 26,
         },
       },
     });
@@ -2312,6 +2336,9 @@ const Reports = () => {
                     <th>Gas Response</th>
                     <th>Battery</th>
                     <th>Location</th>
+                    <th>Coordinates</th>
+                    <th>GPS</th>
+                    <th>Time Source</th>
                   </tr>
                 </thead>
 
@@ -2320,7 +2347,7 @@ const Reports = () => {
                   0 ? (
                     <tr>
                       <td
-                        colSpan="6"
+                        colSpan="9"
                         className="report-table-empty"
                       >
                         No telemetry was
@@ -2379,26 +2406,41 @@ const Reports = () => {
                           </td>
 
                           <td>
-                            {record.latitude !=
-                              null &&
-                            record.longitude !=
-                              null ? (
+                            {isValidTelemetryLocation(
+                              record
+                            ) ? (
                               <>
                                 <FaLocationDot />{" "}
-                                {Number(
-                                  record.latitude
-                                ).toFixed(
-                                  4
-                                )}
-                                ,{" "}
-                                {Number(
-                                  record.longitude
-                                ).toFixed(
-                                  4
+                                {getTelemetryLocationName(
+                                  record
                                 )}
                               </>
                             ) : (
-                              "—"
+                              "Location unavailable"
+                            )}
+                          </td>
+
+                          <td>
+                            {isValidTelemetryLocation(
+                              record
+                            )
+                              ? formatTelemetryCoordinates(
+                                  record
+                                )
+                              : "GPS unavailable"}
+                          </td>
+
+                          <td>
+                            {formatTelemetryBoolean(
+                              record.gpsValid,
+                              "Valid",
+                              "Invalid"
+                            )}
+                          </td>
+
+                          <td>
+                            {formatTelemetryTimeSource(
+                              record.timeSource
                             )}
                           </td>
                         </tr>

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import ShipmentRoutePlanner from "../../components/shipments/ShipmentRoutePlanner";
 
@@ -39,6 +39,17 @@ import {
 import { assignDeviceToShipment } from "../../api/deviceApi";
 import { getShipmentTimeline } from "../../api/timelineApi";
 import { getLatestShipmentTelemetry } from "../../api/telemetryApi";
+
+import {
+  getTelemetryLocationName,
+  formatTelemetryCoordinates,
+  isValidTelemetryLocation,
+  formatTelemetryBoolean,
+  formatTelemetryNumber,
+  formatTelemetrySatelliteCount,
+  formatTelemetryTimeSource,
+  getTelemetryTimestamp,
+} from "../../utils/formatData";
 
 import {
   verifyShipmentIntegrity,
@@ -440,13 +451,82 @@ const battery =
   telemetry?.batteryPercent ??
   null;
 
-const placeName = telemetry?.location?.displayName || null;
-
 const telemetryTime =
   telemetry?.timestamp ||
   telemetry?.createdAt ||
   telemetry?.recordedAt ||
   "";
+
+const telemetryReceivedTime =
+  telemetry?.receivedAt || "";
+
+const locationName =
+  telemetry ? getTelemetryLocationName(telemetry) : null;
+
+const telemetryHasValidLocation =
+  isValidTelemetryLocation(telemetry);
+
+const telemetryCoordinates =
+  telemetry
+    ? formatTelemetryCoordinates(telemetry)
+    : null;
+
+const telemetryGpsValidity =
+  telemetry
+    ? formatTelemetryBoolean(
+        telemetry?.gpsValid,
+        "GPS valid",
+        "GPS unavailable"
+      )
+    : null;
+
+const telemetrySatelliteCount =
+  telemetry
+    ? formatTelemetrySatelliteCount(
+        telemetry?.satelliteCount
+      )
+    : null;
+
+const telemetryHdop =
+  telemetry
+    ? formatTelemetryNumber(
+        telemetry?.hdop,
+        1
+      )
+    : null;
+
+const telemetryAccuracy =
+  telemetry
+    ? formatTelemetryNumber(
+        telemetry?.accuracy,
+        1,
+        " m"
+      )
+    : null;
+
+const telemetryTimeSource =
+  telemetry
+    ? formatTelemetryTimeSource(
+        telemetry?.timeSource
+      )
+    : null;
+
+const telemetryClockValidity =
+  telemetry
+    ? formatTelemetryBoolean(
+        telemetry?.clockValid,
+        "Clock valid",
+        "Server time fallback"
+      )
+    : null;
+
+const telemetryClockFallbackReason =
+  telemetry?.clockFallbackReason || "";
+
+const telemetryTimestampValue =
+  telemetry
+    ? getTelemetryTimestamp(telemetry)
+    : null;
 
   /* =========================================================
      TOAST
@@ -1356,6 +1436,105 @@ const handleCreateCheckpoint = async () => {
       </section>
 
       {/* =====================================================
+          TELEMETRY METADATA
+      ===================================================== */}
+
+      {telemetry && (
+        <section className="panel sd-section">
+          <div className="sd-section-header">
+            <div>
+              <span className="eyebrow">
+                LOCATION &amp; CLOCK
+              </span>
+
+              <h2>Telemetry Metadata</h2>
+
+              <p>
+                GPS fix quality, place name, and timestamp
+                provenance for the latest reading.
+              </p>
+            </div>
+          </div>
+
+          <div className="sd-info-grid">
+            <InfoItem
+              icon={FaLocationDot}
+              label="Location"
+              value={
+                telemetryHasValidLocation
+                  ? locationName
+                  : "Location unavailable"
+              }
+            />
+
+            <InfoItem
+              icon={FaLocationDot}
+              label="GPS"
+              value={telemetryGpsValidity}
+            />
+
+            <InfoItem
+              icon={FaLocationDot}
+              label="Coordinates"
+              value={
+                telemetryHasValidLocation
+                  ? telemetryCoordinates
+                  : "GPS unavailable"
+              }
+              mono
+            />
+
+            <InfoItem
+              icon={FaLocationDot}
+              label="Satellites"
+              value={telemetrySatelliteCount}
+            />
+
+            <InfoItem
+              icon={FaLocationDot}
+              label="HDOP"
+              value={telemetryHdop}
+            />
+
+            <InfoItem
+              icon={FaLocationDot}
+              label="Accuracy"
+              value={telemetryAccuracy}
+            />
+
+            <InfoItem
+              icon={FaClock}
+              label="Time Source"
+              value={telemetryTimeSource}
+            />
+
+            <InfoItem
+              icon={FaClock}
+              label="Clock"
+              value={
+                telemetryClockValidity +
+                (telemetryClockFallbackReason
+                  ? ` (${telemetryClockFallbackReason})`
+                  : "")
+              }
+            />
+
+            <InfoItem
+              icon={FaClock}
+              label="Telemetry Time"
+              value={formatDate(telemetryTimestampValue)}
+            />
+
+            <InfoItem
+              icon={FaClock}
+              label="Received Time"
+              value={formatDate(telemetryReceivedTime)}
+            />
+          </div>
+        </section>
+      )}
+
+      {/* =====================================================
     JOURNEY
 ===================================================== */}
 
@@ -1420,6 +1599,7 @@ const handleCreateCheckpoint = async () => {
 <ShipmentRoutePlanner
   shipment={shipment}
   currentUser={{ role }}
+  latestTelemetry={telemetry}
 />
 
 

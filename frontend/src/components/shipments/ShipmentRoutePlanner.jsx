@@ -122,6 +122,7 @@ const MODE_LABELS = {
 export default function ShipmentRoutePlanner({
   shipment,
   currentUser,
+  latestTelemetry,
 }) {
   const shipmentId =
     shipment?.shipmentId ||
@@ -161,6 +162,37 @@ export default function ShipmentRoutePlanner({
   const canManageRoute =
     role === "TRANSPORTER" ||
     role === "ADMIN";
+
+
+  // --------------------------------------------------
+  // Latest valid device GPS position (informational)
+  // Never replaces the planned destination.
+  // --------------------------------------------------
+
+  const telemetryPosition = useMemo(() => {
+    const latitude = toNumber(
+      latestTelemetry?.latitude
+    );
+
+    const longitude = toNumber(
+      latestTelemetry?.longitude
+    );
+
+    if (
+      latestTelemetry?.gpsValid !== true ||
+      !validCoordinate(latitude, longitude)
+    ) {
+      return null;
+    }
+
+    return {
+      latitude,
+      longitude,
+      displayName:
+        latestTelemetry?.location?.displayName ||
+        null,
+    };
+  }, [latestTelemetry]);
 
 
   // --------------------------------------------------
@@ -541,8 +573,32 @@ export default function ShipmentRoutePlanner({
   ]);
 
 
+  // Points used to frame the map: the planned route plus the
+  // current device position (when a valid GPS fix exists).
+
+  const fitPoints = useMemo(() => {
+    if (!telemetryPosition) {
+      return mapPoints;
+    }
+
+    return [
+      ...mapPoints,
+      [
+        telemetryPosition.latitude,
+        telemetryPosition.longitude,
+      ],
+    ];
+  }, [mapPoints, telemetryPosition]);
+
+
   const hasMapRoute =
     mapPoints.length >= 2;
+
+
+  // Show the live position even when no planned route exists yet.
+
+  const showMap =
+    hasMapRoute || Boolean(telemetryPosition);
 
 
   // --------------------------------------------------
@@ -888,11 +944,17 @@ export default function ShipmentRoutePlanner({
             )}
 
 
-            {hasMapRoute && (
+            {showMap && (
               <div className="route-map-wrapper">
 
                 <MapContainer
-                  center={mapPoints[0]}
+                  center={
+                    mapPoints[0] ||
+                    (telemetryPosition && [
+                      telemetryPosition.latitude,
+                      telemetryPosition.longitude,
+                    ])
+                  }
                   zoom={8}
                   scrollWheelZoom
                   className="route-map"
@@ -924,17 +986,47 @@ export default function ShipmentRoutePlanner({
                   )}
 
 
-                  <Polyline
-                    positions={mapPoints}
-                  />
+                  {telemetryPosition && (
+                    <Marker
+                      position={[
+                        telemetryPosition.latitude,
+                        telemetryPosition.longitude,
+                      ]}
+                    >
+                      <Popup>
+                        {telemetryPosition.displayName
+                          ? `Current GPS position: ${telemetryPosition.displayName}`
+                          : "Current GPS position"}
+                      </Popup>
+                    </Marker>
+                  )}
 
 
-                  <FitRoute
-                    points={mapPoints}
-                  />
+                  {hasMapRoute && (
+                    <Polyline
+                      positions={mapPoints}
+                    />
+                  )}
+
+
+                  <FitRoute points={fitPoints} />
 
                 </MapContainer>
 
+              </div>
+            )}
+
+
+            {telemetryPosition && (
+              <div className="route-place-name">
+                <FaLocationDot />{" "}
+                Current GPS position:{" "}
+                {telemetryPosition.displayName ||
+                  `${telemetryPosition.latitude.toFixed(
+                    5
+                  )}, ${telemetryPosition.longitude.toFixed(
+                    5
+                  )}`}
               </div>
             )}
 

@@ -5,6 +5,16 @@ import { getLatestDeviceTelemetry } from "../../api/telemetryApi";
 import LoadingSpinner from "../../components/common/LoadingSpinner";
 import ErrorState from "../../components/common/ErrorState";
 import Badge from "../../components/common/Badge";
+import {
+  getTelemetryLocationName,
+  formatTelemetryCoordinates,
+  isValidTelemetryLocation,
+  formatTelemetryBoolean,
+  formatTelemetryNumber,
+  formatTelemetrySatelliteCount,
+  formatTelemetryTimeSource,
+  getTelemetryTimestamp,
+} from "../../utils/formatData";
 
 function DeviceDetails() {
   const { id } = useParams();
@@ -52,9 +62,17 @@ function DeviceDetails() {
       <p>Temperature: {telemetry?.temperature != null ? `${telemetry.temperature}°C` : "No telemetry available"}</p>
       <p>Humidity: {telemetry?.humidity != null ? `${telemetry.humidity}%` : "No telemetry available"}</p>
       <p>Gas Level: {telemetry?.gasLevel != null ? `${telemetry.gasLevel}` : "No telemetry available"}</p>
-      <p>Latitude: {telemetry?.latitude != null ? telemetry.latitude.toFixed(5) : "Location unavailable"}</p>
-      <p>Longitude: {telemetry?.longitude != null ? telemetry.longitude.toFixed(5) : "Location unavailable"}</p>
-      <p>Telemetry Timestamp: {telemetry?.timestamp ? new Date(telemetry.timestamp).toLocaleString() : "No telemetry available"}</p>
+      <p>Location: {isValidTelemetryLocation(telemetry) ? getTelemetryLocationName(telemetry) : "Location unavailable"}</p>
+      <p>GPS: {formatTelemetryBoolean(telemetry?.gpsValid, "GPS valid", "GPS unavailable")}</p>
+      <p>Latitude: {isValidTelemetryLocation(telemetry) ? formatTelemetryCoordinates(telemetry).split(", ")[0] : "Location unavailable"}</p>
+      <p>Longitude: {isValidTelemetryLocation(telemetry) ? formatTelemetryCoordinates(telemetry).split(", ")[1] : "Location unavailable"}</p>
+      <p>Satellites: {formatTelemetrySatelliteCount(telemetry?.satelliteCount)}</p>
+      <p>HDOP: {formatTelemetryNumber(telemetry?.hdop, 1)}</p>
+      <p>Accuracy: {formatTelemetryNumber(telemetry?.accuracy, 1, " m")}</p>
+      <p>Time Source: {formatTelemetryTimeSource(telemetry?.timeSource)}</p>
+      <p>Clock: {formatTelemetryBoolean(telemetry?.clockValid, "Clock valid", "Server time fallback")}{telemetry?.clockFallbackReason ? ` (${telemetry.clockFallbackReason})` : ""}</p>
+      <p>Telemetry Timestamp: {getTelemetryTimestamp(telemetry) ? new Date(getTelemetryTimestamp(telemetry)).toLocaleString() : "No telemetry available"}</p>
+      <p>Received: {telemetry?.receivedAt ? new Date(telemetry.receivedAt).toLocaleString() : "No telemetry available"}</p>
       <Link to={`/devices/assign?deviceId=${device?.deviceId ?? id}`} className="btn btn-primary mt-4">Assign to Shipment</Link>
     </div>
   );

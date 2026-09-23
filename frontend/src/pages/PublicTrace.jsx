@@ -2,6 +2,17 @@ import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { getPublicTrace } from "../api/traceabilityApi";
 
+import {
+  getTelemetryLocationName,
+  formatTelemetryCoordinates,
+  isValidTelemetryLocation,
+  formatTelemetryBoolean,
+  formatTelemetryNumber,
+  formatTelemetrySatelliteCount,
+  formatTelemetryTimeSource,
+  getTelemetryTimestamp,
+} from "../utils/formatData";
+
 const PublicTrace = () => {
   const { trackingId } = useParams();
   const navigate = useNavigate();
@@ -651,6 +662,104 @@ const PublicTrace = () => {
                     </div>
                   </div>
                 )}
+
+                <div
+                  style={{ marginTop: 16 }}
+                  className="consumer-condition-grid"
+                >
+                  <div>
+                    <span>Location</span>
+                    <strong>
+                      {isValidTelemetryLocation(trace.latestTelemetry)
+                        ? getTelemetryLocationName(trace.latestTelemetry)
+                        : "Location unavailable"}
+                    </strong>
+                  </div>
+
+                  <div>
+                    <span>GPS</span>
+                    <strong>
+                      {formatTelemetryBoolean(
+                        trace.latestTelemetry?.gpsValid,
+                        "GPS valid",
+                        "GPS unavailable"
+                      )}
+                    </strong>
+                  </div>
+
+                  <div>
+                    <span>Coordinates</span>
+                    <strong>
+                      {isValidTelemetryLocation(trace.latestTelemetry)
+                        ? formatTelemetryCoordinates(trace.latestTelemetry)
+                        : "GPS unavailable"}
+                    </strong>
+                  </div>
+
+                  <div>
+                    <span>Satellites</span>
+                    <strong>
+                      {formatTelemetrySatelliteCount(
+                        trace.latestTelemetry?.satelliteCount
+                      )}
+                    </strong>
+                  </div>
+
+                  <div>
+                    <span>HDOP</span>
+                    <strong>
+                      {formatTelemetryNumber(
+                        trace.latestTelemetry?.hdop,
+                        1
+                      )}
+                    </strong>
+                  </div>
+
+                  <div>
+                    <span>Accuracy</span>
+                    <strong>
+                      {formatTelemetryNumber(
+                        trace.latestTelemetry?.accuracy,
+                        1,
+                        " m"
+                      )}
+                    </strong>
+                  </div>
+
+                  <div>
+                    <span>Time Source</span>
+                    <strong>
+                      {formatTelemetryTimeSource(
+                        trace.latestTelemetry?.timeSource
+                      )}
+                    </strong>
+                  </div>
+
+                  <div>
+                    <span>Clock</span>
+                    <strong>
+                      {formatTelemetryBoolean(
+                        trace.latestTelemetry?.clockValid,
+                        "Clock valid",
+                        "Server time fallback"
+                      )}
+                      {trace.latestTelemetry?.clockFallbackReason
+                        ? ` (${trace.latestTelemetry.clockFallbackReason})`
+                        : ""}
+                    </strong>
+                  </div>
+
+                  <div>
+                    <span>Telemetry Time</span>
+                    <strong>
+                      {getTelemetryTimestamp(trace.latestTelemetry)
+                        ? formatDate(
+                            getTelemetryTimestamp(trace.latestTelemetry)
+                          )
+                        : "N/A"}
+                    </strong>
+                  </div>
+                </div>
               </>
             ) : (
               <div className="data-unavailable">
