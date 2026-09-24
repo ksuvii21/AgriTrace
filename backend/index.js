@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import { createServer } from "http";
 import authRoutes from "./routes/authRoutes.js";
+import userRoutes from "./routes/userRoutes.js";
 import shipmentRoutes from "./routes/shipmentRoutes.js";
 import deviceRoutes from "./routes/deviceRoutes.js";
 import alertRoutes from "./routes/alertRoutes.js";
@@ -31,6 +32,7 @@ app.get("/", (req, res) => {
 });
 
 app.use("/api/v1/auth", authRoutes);
+app.use("/api/v1/users", userRoutes);
 app.use("/api/v1/alerts", alertRoutes);
 app.use("/api/v1/shipments", shipmentRoutes);
 app.use("/api/v1/shipments", environmentSummaryRoutes);

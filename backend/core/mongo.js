@@ -80,6 +80,7 @@ await collections.telemetry.createIndex({
   await collections.users.createIndex({ uid: 1 }, { unique: true });
   await collections.users.createIndex({ email: 1 }, { unique: true, sparse: true });
   await collections.users.createIndex({ role: 1 });
+  await collections.users.createIndex({ "pushTokens.token": 1 });
 
   // devices indexes
   await collections.devices.createIndex({ deviceId: 1 }, { unique: true });

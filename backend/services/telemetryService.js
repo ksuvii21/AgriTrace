@@ -47,6 +47,53 @@ export async function getLatestTelemetryByShipment(shipmentId) {
   );
 }
 
+// Latest telemetry for EVERY device assigned to a shipment.
+//
+// A shipment may have one assignedDevice on the shipment document, but devices
+// also carry currentShipmentId. Both are considered so Live Monitoring and
+// Shipment Details agree on which devices belong to the shipment.
+export async function getLatestTelemetryByShipmentDevices(shipmentId) {
+  const collection = getCollection();
+
+  const deviceIds = await getCollection("devices")
+    .distinct("deviceId", { currentShipmentId: shipmentId });
+
+  const shipment = await getCollection("shipments").findOne(
+    { shipmentId },
+    { projection: { _id: 0, assignedDevice: 1 } }
+  );
+
+  if (shipment?.assignedDevice && !deviceIds.includes(shipment.assignedDevice)) {
+    deviceIds.push(shipment.assignedDevice);
+  }
+
+  if (deviceIds.length === 0) {
+    // Fall back to any telemetry already stamped with this shipmentId.
+    const fallback = await collection
+      .find({ shipmentId })
+      .sort({ timestamp: -1 })
+      .limit(1)
+      .toArray();
+    return fallback;
+  }
+
+  // One latest reading per device (by timestamp), newest device first.
+  const latest = await Promise.all(
+    deviceIds.map((deviceId) =>
+      collection.findOne(
+        { $or: [{ deviceId }, { shipmentId, deviceId }] },
+        { sort: { timestamp: -1 } }
+      )
+    )
+  );
+
+  return latest
+    .filter(Boolean)
+    .sort(
+      (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+    );
+}
+
 export async function getTelemetryHistoryByShipment(shipmentId, filters) {
   return getCollection()
     .find(buildHistoryQuery("shipmentId", shipmentId, filters))

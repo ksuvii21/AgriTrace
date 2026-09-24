@@ -3,6 +3,8 @@ import { broadcastToAll } from "../core/websocket.js";
 import { TimelineEventType } from "../core/timelineEvents.js";
 import { addTimelineEvent } from "./timelineService.js";
 import { getAccessibleShipmentIds, getAccessibleDeviceIds } from "../core/accessControl.js";
+import { config } from "../core/config.js";
+import { sendCriticalAlertPush } from "../core/pushNotifications.js";
 
 export async function createSystemAlert({
   deviceId,
@@ -54,6 +56,31 @@ export async function resolveSystemAlert(deviceId, type, actorId = "SYSTEM") {
 }
 
 export const DEFAULT_BATTERY_MIN = 15;
+
+// ==========================================================
+// GAS THRESHOLD RESOLUTION
+// ==========================================================
+//
+// The backend is the authoritative source of alert severity. The gas level
+// is a RAW MQ sensor value, NOT ethylene ppm.
+//
+// Resolution order:
+//   1. shipment.thresholds.gasLevel.max  (per-shipment override)
+//   2. CRITICAL_GAS_THRESHOLD env value  (global default)
+
+function resolveGasThreshold(thresholds) {
+  const shipmentMax = thresholds?.gasLevel?.max;
+  if (Number.isFinite(shipmentMax)) return shipmentMax;
+  return config.criticalGasThreshold;
+}
+
+export function getGasCriticalThreshold(thresholds = {}) {
+  return resolveGasThreshold(thresholds);
+}
+
+// Gas readings come from an MQ sensor and are surfaced as GAS_CRITICAL, never
+// as ethylene ppm.
+export const CRITICAL_GAS_ALERT_TYPE = "GAS_CRITICAL";
 
 export const alertRules = [
   {
@@ -132,17 +159,19 @@ export const alertRules = [
     severity: "WARNING",
   },
   {
-    type: "GAS_ALERT",
-    isSupported: (r, thresholds) =>
-      Number.isFinite(r.gasLevel) &&
-      Number.isFinite(thresholds?.gasLevel?.max),
+    // GAS_CRITICAL is the mobile critical-alert incident. The threshold is
+    // resolved by the backend: shipment override first, then
+    // CRITICAL_GAS_THRESHOLD. The gas level is a raw MQ sensor value.
+    type: CRITICAL_GAS_ALERT_TYPE,
+    isSupported: (r) => Number.isFinite(r.gasLevel),
     check: (r, thresholds) =>
-      r.gasLevel > thresholds.gasLevel.max,
+      r.gasLevel > resolveGasThreshold(thresholds),
     value: (r) => r.gasLevel,
     threshold: (thresholds) => ({
       operator: ">",
-      limit: thresholds.gasLevel.max,
+      limit: resolveGasThreshold(thresholds),
       field: "gasLevel",
+      unit: "raw",
     }),
     severity: "CRITICAL",
   },
@@ -172,7 +201,7 @@ function getActiveAlertId(reading, rule) {
 }
 
 function createAlert(reading, rule, thresholds, now) {
-  return {
+  const alert = {
     alertId: getActiveAlertId(reading, rule),
     shipmentId: reading.shipmentId || null,
     deviceId: reading.deviceId,
@@ -186,7 +215,25 @@ function createAlert(reading, rule, thresholds, now) {
     status: "OPEN",
     acknowledgedAt: null,
     resolvedAt: null,
+
+    // ------------------------------------------------------
+    // Incident deduplication metadata
+    // ------------------------------------------------------
+    // A burst of critical readings stays a single ACTIVE incident. Each new
+    // breaching reading updates these fields instead of inserting a row.
+    occurrenceCount: 1,
+    firstTriggeredAt: now,
+    lastTriggeredAt: now,
+    lastSeenAt: now,
   };
+
+  // Gas incidents expose the latest raw sensor value. Never presented as
+  // ethylene ppm.
+  if (rule.type === CRITICAL_GAS_ALERT_TYPE) {
+    alert.latestGasLevel = rule.value(reading);
+  }
+
+  return alert;
 }
 
 function stripMongoId(doc) {
@@ -213,8 +260,19 @@ async function transitionAlert(reading, rule, thresholds) {
       alertId: activeId,
     });
 
-    if (legacyAlert && legacyAlert.status !== "OPEN") {
-      return { action: "unchanged", alert: legacyAlert };
+    // A previous incident with the same active id is ACKNOWLEDGED or RESOLVED.
+    //
+    //  - If this reading is ALSO breaching, a new incident must begin: fall
+    //    through so a fresh OPEN alert is created below (critical incidents are
+    //    not permanently silenced by acknowledgement).
+    //  - If the alert was merely RESOLVED (recovered) we archive it to history
+    //    so the new incident does not overwrite it.
+    if (legacyAlert && legacyAlert.status === "RESOLVED") {
+      await alertsCollection.insertOne({
+        ...stripMongoId(legacyAlert),
+        historical: true,
+        archivedAt: now,
+      });
     }
   }
 
@@ -224,11 +282,29 @@ async function transitionAlert(reading, rule, thresholds) {
 
   if (violating) {
     if (currentAlert?.status === "OPEN") {
+      // Another breaching reading for the SAME active incident. Do NOT create
+      // a new alert. Update the incident in place.
+      const incidentUpdate = {
+        value: rule.value(reading),
+        actualValue: rule.value(reading),
+        lastSeenAt: now,
+        lastTriggeredAt: now,
+        occurrenceCount: (currentAlert.occurrenceCount || 0) + 1,
+      };
+
+      if (rule.type === CRITICAL_GAS_ALERT_TYPE) {
+        incidentUpdate.latestGasLevel = rule.value(reading);
+      }
+
       await alertsCollection.updateOne(
         { _id: currentAlert._id },
-        { $set: { value: rule.value(reading), actualValue: rule.value(reading), lastSeenAt: now } }
+        { $set: incidentUpdate }
       );
-      return { action: "unchanged", alert: { ...currentAlert, lastSeenAt: now } };
+
+      return {
+        action: "updated",
+        alert: { ...currentAlert, ...incidentUpdate },
+      };
     }
 
     if (currentAlert?.status === "RESOLVED") {
@@ -240,6 +316,8 @@ async function transitionAlert(reading, rule, thresholds) {
       await alertsCollection.insertOne(historyEntry);
     }
 
+    // A brand-new incident: either there was no alert, or the previous one
+    // was ACKNOWLEDGED/RESOLVED and a new breach starts a new incident.
     const alert = createAlert(reading, rule, thresholds, now);
     await alertsCollection.replaceOne(
       { alertId: activeId },
@@ -249,10 +327,15 @@ async function transitionAlert(reading, rule, thresholds) {
     return { action: "created", alert };
   }
 
+  // Reading is within threshold.
+  // An ACKNOWLEDGED incident is NOT auto-reopened by a normal reading; it stays
+  // acknowledged until it recovers (below) or a new breach arrives (above).
   if (currentAlert?.status !== "OPEN") {
     return { action: "unchanged", alert: currentAlert };
   }
 
+  // Recovery: the gas level came back within threshold. The OPEN incident is
+  // marked RESOLVED (never deleted); a future breach creates a fresh incident.
   const resolvedAlert = {
     ...currentAlert,
     status: "RESOLVED",
@@ -332,6 +415,24 @@ export async function evaluateAlerts(reading, shipment = null) {
         }
 
         broadcastToAll({ type: "alert.created", data: transition.alert });
+
+        // Backend-originated push for a NEW critical gas incident. Sent only
+        // on creation so a burst of readings does not spam the mobile client.
+        if (rule.type === CRITICAL_GAS_ALERT_TYPE) {
+          try {
+            await sendCriticalAlertPush({
+              alert: transition.alert,
+              deviceId: reading.deviceId,
+              shipmentId: reading.shipmentId || transition.alert.shipmentId || null,
+              gasLevel: reading.gasLevel,
+            });
+          } catch (error) {
+            console.error("Critical alert push error:", error.message);
+          }
+        }
+      } else if (transition.action === "updated") {
+        // Same active incident, refreshed with the newest reading. No push.
+        broadcastToAll({ type: "alert.updated", data: transition.alert });
       } else if (transition.action === "resolved") {
         console.log(`ALERT resolved: ${rule.type} for device ${reading.deviceId}`);
         broadcastToAll({ type: "alert.resolved", data: transition.alert });
@@ -469,4 +570,82 @@ export async function resolveAlert(alertId, userId) {
   );
   if (!result) return null;
   return { id: result._id?.toString(), ...result };
+}
+// ==========================================================
+// DEVELOPMENT TEST: SYNTHETIC CRITICAL GAS INCIDENT
+// ==========================================================
+//
+// Executes the SAME pipeline as real MQTT telemetry:
+//   resolve device -> resolve active shipment -> evaluateAlerts
+//   (alert creation -> deduplication -> push notification)
+//
+// It does NOT fabricate a fake alert response. Callers receive the incident
+// that the real pipeline produced.
+
+export async function triggerTestCriticalAlert({ deviceId, gasLevel }) {
+  if (typeof deviceId !== "string" || !deviceId.trim()) {
+    const error = new Error("deviceId is required");
+    error.code = "INVALID_DEVICE_ID";
+    throw error;
+  }
+
+  if (
+    typeof gasLevel !== "number" ||
+    !Number.isFinite(gasLevel) ||
+    gasLevel < 0
+  ) {
+    const error = new Error("gasLevel must be a non-negative finite number");
+    error.code = "INVALID_GAS_LEVEL";
+    throw error;
+  }
+
+  const device = await getCollection("devices").findOne({
+    deviceId: deviceId.trim(),
+  });
+
+  if (!device) {
+    const error = new Error("Device not found");
+    error.code = "DEVICE_NOT_FOUND";
+    throw error;
+  }
+
+  const shipmentId = device.currentShipmentId || null;
+
+  const shipment = shipmentId
+    ? await getCollection("shipments").findOne({ shipmentId })
+    : null;
+
+  // Synthetic reading shaped like a normalized MQTT telemetry document so the
+  // exact same alert rules and dedup logic run. No telemetry is stored.
+  const reading = {
+    deviceId: device.deviceId,
+    shipmentId,
+    gasLevel,
+    temperature: Number.isFinite(device.lastTemperature)
+      ? device.lastTemperature
+      : null,
+    humidity: Number.isFinite(device.lastHumidity)
+      ? device.lastHumidity
+      : null,
+    battery: Number.isFinite(device.battery) ? device.battery : null,
+    timestamp: new Date(),
+  };
+
+  await evaluateAlerts(reading, shipment);
+
+  // Return the incident the pipeline actually produced.
+  const alert = await getCollection("alerts").findOne({
+    alertId: getActiveAlertId(
+      reading,
+      alertRules.find((rule) => rule.type === CRITICAL_GAS_ALERT_TYPE)
+    ),
+  });
+
+  return {
+    deviceId: device.deviceId,
+    shipmentId,
+    gasLevel,
+    threshold: resolveGasThreshold(shipment?.thresholds || {}),
+    alert: alert ? { id: alert._id?.toString(), ...alert } : null,
+  };
 }

@@ -5,6 +5,7 @@
   "main": "index.js",
   "scripts": {
     "test": "node --test models/*.test.js services/*.test.js tests/*.test.js",
+    "test:e2e:critical": "node scripts/verify-critical-alert.js",
     "check": "node --check index.js && node --check core/config.js && node --check core/mqttConsumer.js && node --check models/telemetry.js && node --check routes/telemetryRoutes.js && node --check services/geocodingService.js && node --check services/publicTraceService.js && node --check services/shipmentService.js",
     "test:watch": "node --test --watch tests/",
     "test:coverage": "node --test --experimental-coverage tests/",

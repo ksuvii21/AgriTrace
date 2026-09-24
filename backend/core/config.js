@@ -52,4 +52,25 @@ export const config = Object.freeze({
     1,
     Number.parseInt(process.env.GEOCODING_CACHE_MAX_ENTRIES || "500", 10) || 500
   ),
+
+  // --------------------------------------------------------
+  // Critical gas alert threshold
+  // --------------------------------------------------------
+  // Backend-authoritative gas level threshold. This is the raw MQ sensor
+  // value (NOT ethylene ppm). Used as the default when a shipment does not
+  // define its own thresholds.gasLevel.max.
+  criticalGasThreshold: (() => {
+    const raw = Number.parseFloat(process.env.CRITICAL_GAS_THRESHOLD);
+    if (!Number.isFinite(raw) || raw < 0) return 4000;
+    return raw;
+  })(),
+
+  // Push notifications are enabled only when explicitly turned on. Disabled
+  // by default so environments without Firebase Messaging credentials keep
+  // working exactly as before.
+  pushNotificationsEnabled: process.env.PUSH_NOTIFICATIONS_ENABLED === "true",
+
+  // Development-only endpoints (e.g. /alerts/test-critical) are exposed only
+  // when the backend is explicitly running in development.
+  nodeEnv: (process.env.NODE_ENV || "development").toLowerCase(),
 });

@@ -26,13 +26,20 @@ export const getDeviceTelemetryHistory = async (deviceId, params = {}) => {
   return Array.isArray(response.data) ? response.data : [];
 };
 
-/** Latest reading for a shipment. Returns a reading object or null (404). */
+/** Latest reading for a shipment. Returns a reading object or null (404).
+ *
+ * The backend returns the latest reading for EACH device assigned to the
+ * shipment. For the single shipment summary used by the web dashboard we take
+ * the most recent device reading.
+ */
 export const getLatestShipmentTelemetry = async (shipmentId) => {
   try {
     const response = await apiClient.get(
       `/telemetry/shipment/${shipmentId}/latest`
     );
-    return response.data ?? null;
+    const data = response.data;
+    if (Array.isArray(data)) return data[0] ?? null;
+    return data ?? null;
   } catch (err) {
     if (err.status === 404) return null;
     throw err;

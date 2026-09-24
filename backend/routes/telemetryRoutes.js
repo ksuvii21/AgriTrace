@@ -6,6 +6,7 @@ import {
   getLatestTelemetryByDevice,
   getTelemetryHistoryByDevice,
   getLatestTelemetryByShipment,
+  getLatestTelemetryByShipmentDevices,
   getTelemetryHistoryByShipment,
 } from "../services/telemetryService.js";
 import { getShipmentForUser } from "../services/shipmentService.js";
@@ -135,10 +136,15 @@ router.get(
       const shipment = await getShipmentForUser(req.params.shipmentId.trim(), req.user.uid, req.user.role);
       if (!shipment) return res.status(404).json({ detail: "Shipment not found or access denied" });
 
-      const telemetry = await getLatestTelemetryByShipment(
+      // Returns the latest reading for EVERY device assigned to the shipment.
+      // A shipment whose device has telemetry stamped with it is therefore
+      // consistent between Live Monitoring and Shipment Details.
+      const telemetry = await getLatestTelemetryByShipmentDevices(
         shipment.shipmentId
       );
-      if (!telemetry) return res.status(404).json({ detail: "Telemetry not found" });
+      if (!telemetry || telemetry.length === 0) {
+        return res.status(404).json({ detail: "Telemetry not found" });
+      }
       return res.json(telemetry);
     } catch (error) {
       return sendTelemetryError(res, error);

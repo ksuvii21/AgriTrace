@@ -1,5 +1,6 @@
 import { initializeApp, cert } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
+import { getMessaging } from "firebase-admin/messaging";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -31,6 +32,20 @@ initializeApp({
 });
 
 export const auth = getAuth();
+
+// Firebase Cloud Messaging is only initialized when Firebase Admin is
+// available. getMessaging() throws if the app has no usable credentials, so
+// it is wrapped to keep auth-only deployments working.
+let messagingInstance = null;
+try {
+  messagingInstance = getMessaging();
+} catch (error) {
+  console.warn(
+    `[Firebase] Cloud Messaging unavailable: ${error.message}`
+  );
+}
+
+export const messaging = messagingInstance;
 
 export async function verifyToken(idToken) {
   return await auth.verifyIdToken(idToken);
