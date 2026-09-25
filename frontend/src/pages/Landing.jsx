@@ -1,9 +1,20 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
+import { Link } from "react-router-dom";
 import {
   Thermometer, Droplets, Wind, MapPin, Battery, Wifi,
   ShieldAlert, Sun, Clock, HardDrive, QrCode, ArrowRight,
 } from "lucide-react";
+
+import { useAuth } from "../context/AuthContext";
+
+/* ---------- auth-aware destination ---------- */
+
+// Signed-out visitors are sent to /login, keeping the page they wanted so
+// Login can return them to it (it reads location.state.from.pathname).
+// Signed-in visitors go straight to the in-app page.
+const authLink = (isAuthenticated, authed, guest = "/login") =>
+  isAuthenticated ? authed : { pathname: guest, state: { from: { pathname: authed } } };
 
 /* ---------- shared ---------- */
 
@@ -29,6 +40,7 @@ function Reveal({ children, className = "" }) {
 /* ---------- Navbar ---------- */
 
 function Navbar() {
+  const { isAuthenticated } = useAuth();
   const [scrolled, setScrolled] = useState(false);
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 40);
@@ -58,12 +70,18 @@ function Navbar() {
           <a href="#for" className="hover:text-[#4C8C63]">About</a>
         </div>
         <div className="flex items-center gap-3">
-          <a href="#trace" className="hidden sm:inline text-sm font-medium px-4 py-2 rounded-md border border-[#173C2E]/30">
+          <Link
+            to={authLink(isAuthenticated, "/shipments/active")}
+            className="hidden sm:inline text-sm font-medium px-4 py-2 rounded-md border border-[#173C2E]/30"
+          >
             Track Shipment
-          </a>
-          <a href="#" className="text-sm font-semibold px-4 py-2 rounded-md bg-[#173C2E] text-[#F6F3EC]">
-            Open Dashboard
-          </a>
+          </Link>
+          <Link
+            to={authLink(isAuthenticated, "/dashboard")}
+            className="text-sm font-semibold px-4 py-2 rounded-md bg-[#173C2E] text-[#F6F3EC]"
+          >
+            {isAuthenticated ? "Open Dashboard" : "Sign In"}
+          </Link>
         </div>
       </div>
     </nav>
@@ -73,6 +91,7 @@ function Navbar() {
 /* ---------- Hero ---------- */
 
 function Hero() {
+  const { isAuthenticated } = useAuth();
   const stages = ["Farm", "Storage", "Transport", "Distribution", "Consumer"];
   return (
     <header id="top" className="pt-36 pb-20 px-6">
@@ -94,9 +113,12 @@ function Hero() {
             <a href="#how" className="px-6 py-3 rounded-md bg-[#173C2E] text-[#F6F3EC] font-medium">
               Explore AgriTrace
             </a>
-            <a href="#trace" className="px-6 py-3 rounded-md border border-[#173C2E]/30 font-medium">
+            <Link
+              to={authLink(isAuthenticated, "/shipments/active")}
+              className="px-6 py-3 rounded-md border border-[#173C2E]/30 font-medium"
+            >
               Track a Shipment
-            </a>
+            </Link>
           </div>
         </div>
 
@@ -341,6 +363,7 @@ function OfflineFlow() {
 /* ---------- Traceability / QR ---------- */
 
 function TraceabilitySection() {
+  const { isAuthenticated } = useAuth();
   const checkpoints = [
     { t: "Origin — Nashik Farm Collective", d: "Harvested, node attached" },
     { t: "Cold Storage — Pune", d: "4.2°C, 82% RH" },
@@ -358,9 +381,12 @@ function TraceabilitySection() {
             A crate leaves with a QR code. Anyone who scans it — a distributor, a
             retailer, a shopper — sees exactly where it's been.
           </p>
-          <a href="#" className="inline-block px-6 py-3 rounded-md bg-[#F6F3EC] text-[#173C2E] font-medium">
+          <Link
+            to={authLink(isAuthenticated, "/shipments/active")}
+            className="inline-block px-6 py-3 rounded-md bg-[#F6F3EC] text-[#173C2E] font-medium"
+          >
             Track a Shipment
-          </a>
+          </Link>
         </div>
         <div className="bg-[#F6F3EC] text-[#1B1B18] rounded-lg p-6">
           <div className="flex items-center gap-4 mb-6">
@@ -494,6 +520,7 @@ function StakeholderJourney() {
 /* ---------- CTA ---------- */
 
 function CTA() {
+  const { isAuthenticated } = useAuth();
   return (
     <section className="py-28 px-6 bg-[#173C2E] text-[#F6F3EC] text-center">
       <h2 className="font-serif text-4xl md:text-5xl mb-6 leading-tight">
@@ -511,9 +538,12 @@ function CTA() {
         <a href="#how" className="px-6 py-3 rounded-md bg-[#F6F3EC] text-[#173C2E] font-medium">
           Explore the Platform
         </a>
-        <a href="#trace" className="px-6 py-3 rounded-md border border-[#F6F3EC]/40 font-medium">
+        <Link
+          to={authLink(isAuthenticated, "/shipments/active")}
+          className="px-6 py-3 rounded-md border border-[#F6F3EC]/40 font-medium"
+        >
           Track a Shipment
-        </a>
+        </Link>
       </div>
     </section>
   );
