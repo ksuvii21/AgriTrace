@@ -11,6 +11,8 @@ import ProtectedRoutes from "./ProtectedRoutes";
 import Login from "../pages/auth/Login";
 import Register from "../pages/auth/Register";
 
+import Landing from "../pages/Landing";
+
 import Dashboard from "../pages/Dashboard";
 
 import CreateShipment from "../pages/shipments/CreateShipment";
@@ -36,6 +38,9 @@ import PublicTrace from "../pages/PublicTrace";
 const AppRoutes = () => {
   return (
     <Routes>
+      {/* Public landing page */}
+      <Route path="/" element={<Landing />} />
+
       {/* Public authentication */}
       <Route path="/login" element={<Login />} />
 
@@ -154,17 +159,6 @@ const AppRoutes = () => {
           />
         </Route>
       </Route>
-
-      {/* Default */}
-      <Route
-        path="/"
-        element={
-          <Navigate
-            to="/dashboard"
-            replace
-          />
-        }
-      />
 
       {/* 404 */}
       <Route

@@ -87,7 +87,7 @@ export async function sendCriticalAlertPush({
   if (tokens.length === 0) {
     console.log(
       `[Push] No push tokens for critical alert ${alert?.alertId}` +
-        (shipmentId ? ` (shipment ${shipmentId})` : "")
+      (shipmentId ? ` (shipment ${shipmentId})` : "")
     );
     return { sent: 0, failed: 0, skipped: true };
   }
