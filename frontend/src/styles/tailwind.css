@@ -1,0 +1,75 @@
+/* ============================================================
+   TAILWIND ENTRY POINT
+   ============================================================
+   Tailwind v4 is configured in CSS, not in a JS config file.
+   The @tailwindcss/vite plugin scans source files for utility
+   classes automatically, so there is no `content` array to set.
+
+   Import order matters: this file is loaded BEFORE the app's own
+   stylesheets (variables.css, globals.css, layout.css,
+   components.css, pages.css), so those keep overriding Tailwind's
+   preflight. Existing pages are therefore unaffected.
+   ============================================================ */
+
+@import "tailwindcss";
+
+/* ------------------------------------------------------------
+   THEME TOKENS
+   Map the Landing page's palette onto Tailwind's theme so it can
+   be used as `bg-forest`, `text-cream`, etc. The arbitrary-value
+   syntax already used in Landing.jsx (e.g. `bg-[#173C2E]`) works
+   without any of this — these just make it more readable.
+
+   `--font-serif` is the important one: Landing.jsx uses
+   `font-serif` for its headings, and Tailwind's default stack is
+   a plain system serif. Pointing it at the display font the rest
+   of the app already loads (Manrope) keeps the landing page
+   visually consistent with the dashboard.
+
+   NOTE: `--color-*` names are intentionally NOT taken from
+   variables.css (`--forest`, `--emerald`, ...) to avoid colliding
+   with those existing plain-CSS variable names.
+   ------------------------------------------------------------ */
+
+@theme {
+  --font-sans: "Inter", system-ui, "Segoe UI", Roboto, sans-serif;
+  --font-serif: "Manrope", "Inter", Georgia, serif;
+  --font-display: "Manrope", "Inter", sans-serif;
+
+  /* Landing page palette */
+  --color-forest: #173c2e;
+  --color-cream: #f6f3ec;
+  --color-leaf: #4c8c63;
+  --color-leaf-light: #8fbf8a;
+  --color-tan: #8a7458;
+  --color-amber: #b4772c;
+  --color-ink: #1b1b18;
+  --color-forest-deep: #0f2a20;
+}
+
+/* ------------------------------------------------------------
+   SCOPED BASE RESET
+   ------------------------------------------------------------
+   Tailwind's preflight sets `background-color: transparent` and
+   `color: inherit` on buttons, and strips heading/list styling.
+   The app's existing components rely on their own rules for
+   those, so scope the landing page's background/typography here
+   rather than letting preflight affect the dashboard.
+
+   `#root` is 1126px wide + centered in index.css, which would
+   box in a full-bleed landing page — the landing page opts out.
+   ------------------------------------------------------------ */
+
+.landing-page {
+  width: 100%;
+  min-height: 100svh;
+  margin: 0;
+  overflow-x: hidden;
+  background: var(--color-cream);
+  color: var(--color-ink);
+}
+
+/* Anchor targets must clear the fixed navbar (h ~72px). */
+.landing-page [id] {
+  scroll-margin-top: 5rem;
+}

@@ -7,6 +7,9 @@ import App from "./App";
 import "leaflet/dist/leaflet.css";
 import { AuthProvider } from "./context/AuthContext";
 
+// Tailwind must come first: the app's own stylesheets below override Tailwind's
+// preflight/base layer, so existing pages keep their current appearance.
+import "./styles/tailwind.css";
 import "./styles/variables.css";
 import "./styles/globals.css";
 import "./styles/layout.css";

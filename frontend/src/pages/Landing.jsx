@@ -589,7 +589,7 @@ function Footer() {
 
 export default function Landing() {
   return (
-    <div className="font-sans bg-[#F6F3EC] text-[#1B1B18]">
+    <div className="landing-page font-sans bg-[#F6F3EC] text-[#1B1B18]">
       <Navbar />
       <Hero />
       <LiveStatus />
