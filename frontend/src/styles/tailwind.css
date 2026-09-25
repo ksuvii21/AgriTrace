@@ -1,3 +1,5 @@
+@import url("https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&display=swap");
+
 /* ============================================================
    TAILWIND ENTRY POINT
    ============================================================
@@ -5,46 +7,104 @@
    The @tailwindcss/vite plugin scans source files for utility
    classes automatically, so there is no `content` array to set.
 
-   Import order matters: this file is loaded BEFORE the app's own
-   stylesheets (variables.css, globals.css, layout.css,
-   components.css, pages.css), so those keep overriding Tailwind's
-   preflight. Existing pages are therefore unaffected.
+   WHY NOT `@import "tailwindcss";`
+   --------------------------------
+   That one import drags in Tailwind's *preflight*, a full CSS
+   reset. This app already ships its own reset (variables.css +
+   globals.css) and the two fight. Measured damage on the app's
+   existing pages:
+     h1..h6 { font-size: inherit; font-weight: inherit }
+        -> every heading collapsed from 32px to 16px
+     *, ::before, ::after { border: 0 solid }
+        -> strips borders on elements that don't redeclare them
+
+   WHY NOT `layer(base)` EITHER
+   ----------------------------
+   `@import "tailwindcss" layer(base);` looks like the fix and is
+   not. Tailwind's own index.css begins with
+       @layer theme, base, components, utilities;
+   declaring base BELOW utilities. Putting the whole bundle in
+   `base` therefore demotes every utility beneath Tailwind's other
+   layers, and preflight still lands unlayered relative to this
+   app. Measured with `layer(base)`: heading back to 16px, and
+   `border:0 solid` back in the bundle. Do not use it.
+
+   WHAT THIS FILE DOES INSTEAD
+   ---------------------------
+   Imports only `theme` (design tokens) and `utilities` (the
+   actual classes). Tailwind's `base`/preflight is never pulled
+   in, so the app's own reset stays authoritative and the landing
+   page still gets real utilities. This is the supported way to
+   use Tailwind as a utility-only layer over existing CSS.
+
+   LAYER ORDER
+   -----------
+   Layer order is declared explicitly right below. `utilities` is
+   placed ABOVE base/overrides deliberately.
+
+   Why: this app's stylesheets are unlayered, and unlayered CSS
+   always beats layered CSS. That is what keeps preflight from
+   leaking — but it would ALSO make the app's element rules beat
+   Tailwind utilities on the landing page. Concretely,
+   variables.css has:
+       h1,h2,h3,h4 { font-family: var(--font-display) }
+   which outranked Tailwind's `.font-serif` and silently kept the
+   landing page's headings in Manrope instead of Fraunces.
+
+   Declaring `utilities` after base/overrides means the landing
+   page's explicit utility classes win, while preflight (never
+   imported at all) still cannot touch the dashboard.
+
+   @import must also precede all other rules — hence these sit at
+   the very top, above the comments below.
    ============================================================ */
 
-@import "tailwindcss";
+@layer theme, base, overrides, utilities;
+
+/* Design tokens: spacing, breakpoints, text sizes, colours. */
+@import "tailwindcss/theme.css" layer(theme);
+
+/* The utility classes themselves (flex, grid, md:grid-cols-2, ...). */
+@import "tailwindcss/utilities.css" layer(utilities);
 
 /* ------------------------------------------------------------
    THEME TOKENS
    Map the Landing page's palette onto Tailwind's theme so it can
    be used as `bg-forest`, `text-cream`, etc. The arbitrary-value
    syntax already used in Landing.jsx (e.g. `bg-[#173C2E]`) works
-   without any of this — these just make it more readable.
+   without any of this — these just make it more readable if you
+   later refactor Landing.jsx to use the token names instead.
 
-   `--font-serif` is the important one: Landing.jsx uses
-   `font-serif` for its headings, and Tailwind's default stack is
-   a plain system serif. Pointing it at the display font the rest
-   of the app already loads (Manrope) keeps the landing page
-   visually consistent with the dashboard.
+   FONTS
+   -----
+   `font-sans` / `font-display` are Manrope-based to match the
+   rest of the app. `font-serif` is Fraunces: Landing.jsx pairs a
+   serif display face against sans body text on purpose, and that
+   contrast is most of what makes the page read as editorial
+   rather than as another dashboard screen.
 
-   NOTE: `--color-*` names are intentionally NOT taken from
-   variables.css (`--forest`, `--emerald`, ...) to avoid colliding
-   with those existing plain-CSS variable names.
+   Fraunces is loaded by the `@import url(...)` at the very top of
+   this file, so it travels with the token that references it
+   rather than living in index.html. (Inter and Manrope are
+   already imported by globals.css.)
    ------------------------------------------------------------ */
 
 @theme {
   --font-sans: "Inter", system-ui, "Segoe UI", Roboto, sans-serif;
-  --font-serif: "Manrope", "Inter", Georgia, serif;
+  --font-serif: "Fraunces", Georgia, serif;
   --font-display: "Manrope", "Inter", sans-serif;
 
-  /* Landing page palette */
+  /* Landing page palette — names mirror the reference HTML's
+     tailwind.config (forest/leaf/sprout/paper/soil/ink/amber) so the
+     markup in Landing.jsx reads the same as the design. */
   --color-forest: #173c2e;
-  --color-cream: #f6f3ec;
-  --color-leaf: #4c8c63;
-  --color-leaf-light: #8fbf8a;
-  --color-tan: #8a7458;
-  --color-amber: #b4772c;
-  --color-ink: #1b1b18;
   --color-forest-deep: #0f2a20;
+  --color-leaf: #4c8c63;
+  --color-sprout: #8fbf8a;
+  --color-paper: #f6f3ec;
+  --color-soil: #8a7458;
+  --color-ink: #1b1b18;
+  --color-amber: #b4772c;
 }
 
 /* ------------------------------------------------------------
@@ -58,6 +118,7 @@
 
    `#root` is 1126px wide + centered in index.css, which would
    box in a full-bleed landing page — the landing page opts out.
+   Landing.jsx's root element already carries `landing-page`.
    ------------------------------------------------------------ */
 
 .landing-page {
@@ -65,11 +126,77 @@
   min-height: 100svh;
   margin: 0;
   overflow-x: hidden;
-  background: var(--color-cream);
+  background: var(--color-paper);
   color: var(--color-ink);
 }
 
 /* Anchor targets must clear the fixed navbar (h ~72px). */
 .landing-page [id] {
   scroll-margin-top: 5rem;
+}
+
+/* ------------------------------------------------------------
+   LANDING PAGE HEADINGS vs. THE APP'S GLOBAL HEADING RULE
+   ------------------------------------------------------------
+   variables.css declares, as an unlayered element selector:
+       h1, h2, h3, h4 {
+         font-family: var(--font-display);
+         color: var(--text);
+       }
+   Unlayered CSS always beats Tailwind's layered utilities, so on the
+   landing page BOTH of these silently lost:
+     - `font-serif`  -> headings stayed Manrope, not Fraunces,
+                        flattening the editorial look
+     - `text-forest` -> headings rendered #1E293B (the dashboard
+                        text colour), not the design's #173C2E
+   (`.text-leaf` on a <p> was unaffected — only headings are hit,
+   because the colliding rule is scoped to h1..h4.)
+
+   A layer-order statement does NOT fix this reliably — the minifier
+   rewrites `@layer theme,base,overrides,utilities` down to just
+   `@layer base,overrides`, dropping the ordering.
+
+   These selectors do: `.landing-page h1` is specificity (0,1,1)
+   against variables.css's `h1` at (0,0,1), so they win on
+   specificity alone, independent of source order or layers.
+
+   Scoped to .landing-page so the dashboard keeps Manrope and its
+   own heading colour. If a landing heading ever needs a different
+   colour, add a `.landing-page`-scoped rule here rather than a
+   Tailwind `text-*` utility — the utility will lose. --------------- */
+
+.landing-page h1,
+.landing-page h2,
+.landing-page h3,
+.landing-page h4,
+.landing-page .font-serif {
+  font-family: var(--font-serif);
+}
+
+/* ------------------------------------------------------------
+   HEADING COLOUR BY SECTION
+   ------------------------------------------------------------
+   variables.css's `h1..h4 { color: var(--text) }` (unlayered)
+   beats Tailwind's layered `text-forest`, so without this every
+   landing heading rendered #1E293B regardless of what the markup
+   asked for.
+
+   Default: forest on light sections.
+   Override: paper on dark sections — forest-on-forest is invisible.
+   Both are (0,1,1)+ and beat variables.css's (0,0,1).
+   ------------------------------------------------------------ */
+.landing-page h1,
+.landing-page h2,
+.landing-page h3,
+.landing-page h4 {
+  color: var(--color-forest);
+}
+
+/* Dark sections: forest-on-forest would be near-invisible, so their
+   headings take the design's paper colour (#F6F3EC). */
+.landing-page section.bg-forest h1,
+.landing-page section.bg-forest h2,
+.landing-page section.bg-forest h3,
+.landing-page section.bg-forest h4 {
+  color: var(--color-paper);
 }
