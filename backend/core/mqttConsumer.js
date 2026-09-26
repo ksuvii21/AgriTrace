@@ -588,6 +588,32 @@ async function handleMessage(
         }
       }
 
+      // Duplicate telemetry still proves that the physical device
+// is alive and communicating with the backend.
+const duplicateSeenAt = new Date().toISOString();
+
+await getCollection("devices").updateOne(
+  {
+    deviceId: topicDeviceId,
+  },
+  {
+    $set: {
+      status: "ONLINE",
+      lastSeenAt: duplicateSeenAt,
+      mqttStatus: "CONNECTED",
+    },
+  }
+);
+
+broadcastToAll({
+  type: "device.updated",
+  data: {
+    deviceId: topicDeviceId,
+    status: "ONLINE",
+    lastSeenAt: duplicateSeenAt,
+  },
+});
+
 
       return;
     }
