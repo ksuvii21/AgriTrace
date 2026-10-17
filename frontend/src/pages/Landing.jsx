@@ -7,11 +7,8 @@ import { useAuth } from "../context/AuthContext";
 
 /* ---------- auth-aware destination ---------- */
 
-// Signed-out visitors are sent to /login, keeping the page they wanted so
-// Login can return them to it (it reads location.state.from.pathname).
-// Signed-in visitors go straight to the in-app page.
 const authLink = (isAuthenticated, authed, guest = "/login") =>
-  isAuthenticated ? authed : { pathname: guest, state: { from: { pathname: authed } } };
+  isAuthenticated ? authed : guest;
 
 /* ---------- shared ---------- */
 
@@ -42,6 +39,16 @@ function Reveal({ children, className = "" }) {
 function Navbar() {
   const { isAuthenticated } = useAuth();
   const [scrolled, setScrolled] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  const navLinks = [
+    { href: "#how", label: "How It Works" },
+    { href: "#technology", label: "Technology" },
+    { href: "#trace", label: "Traceability" },
+    { href: "#impact", label: "Impact" },
+    { href: "#for", label: "About" },
+  ];
+
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 40);
     window.addEventListener("scroll", onScroll);
@@ -50,40 +57,68 @@ function Navbar() {
 
   return (
     <nav
-      className={`fixed top-0 inset-x-0 z-50 transition-colors duration-300 ${
+      aria-label="Main navigation"
+      className={`landing-nav fixed top-0 inset-x-0 z-50 transition-colors duration-300 ${
         scrolled ? "bg-paper/95 backdrop-blur shadow-sm" : ""
       }`}
       style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}
     >
-      <div className="max-w-7xl mx-auto flex items-center justify-between px-6 py-4">
+      <div className="max-w-7xl mx-auto flex items-center justify-between gap-3 px-4 py-4 sm:px-6">
         <a href="#top" className="flex items-center gap-2">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
             <path d="M12 2C8 6 5 10 5 14a7 7 0 0014 0c0-4-3-8-7-12z" fill="#4C8C63" />
           </svg>
           <span className="font-serif text-lg tracking-tight">AgriTrace</span>
         </a>
-        <div className="hidden md:flex gap-8 text-sm font-medium">
-          <a href="#how" className="hover:text-leaf">How It Works</a>
-          <a href="#technology" className="hover:text-leaf">Technology</a>
-          <a href="#trace" className="hover:text-leaf">Traceability</a>
-          <a href="#impact" className="hover:text-leaf">Impact</a>
-          <a href="#for" className="hover:text-leaf">About</a>
+        <div className="landing-nav-links gap-8 text-sm font-medium">
+          {navLinks.map((item) => (
+            <a key={item.href} href={item.href}>{item.label}</a>
+          ))}
         </div>
         <div className="flex items-center gap-3">
           <Link
-            to={authLink(isAuthenticated, "/shipments/active")}
-            className="hidden sm:inline text-sm font-medium px-4 py-2 rounded-md border border-forest/30"
+            to="/trace"
+            className="landing-button-outline landing-track-link text-sm font-medium px-4 py-2 rounded-md border border-forest/30"
           >
             Track Shipment
           </Link>
           <Link
             to={authLink(isAuthenticated, "/dashboard")}
-            className="text-sm font-semibold px-4 py-2 rounded-md bg-forest text-paper"
+            state={!isAuthenticated ? { from: { pathname: "/dashboard" } } : undefined}
+            className="landing-button-primary text-sm font-semibold px-4 py-2 rounded-md bg-forest text-paper"
           >
             {isAuthenticated ? "Open Dashboard" : "Sign In"}
           </Link>
+          <button
+            type="button"
+            className="landing-menu-toggle"
+            aria-label={menuOpen ? "Close navigation menu" : "Open navigation menu"}
+            aria-expanded={menuOpen}
+            aria-controls="landing-mobile-menu"
+            onClick={() => setMenuOpen((open) => !open)}
+          >
+            <span />
+            <span />
+            <span />
+          </button>
         </div>
       </div>
+      {menuOpen && (
+        <div id="landing-mobile-menu" className="landing-mobile-menu">
+          {navLinks.map((item) => (
+            <a
+              key={item.href}
+              href={item.href}
+              onClick={() => setMenuOpen(false)}
+            >
+              {item.label}
+            </a>
+          ))}
+          <Link to="/trace" onClick={() => setMenuOpen(false)}>
+            Track Shipment
+          </Link>
+        </div>
+      )}
     </nav>
   );
 }
@@ -91,7 +126,6 @@ function Navbar() {
 /* ---------- Hero ---------- */
 
 function Hero() {
-  const { isAuthenticated } = useAuth();
   return (
     <header id="top" className="relative pt-36 pb-20 px-6 overflow-hidden">
       <div className="max-w-7xl mx-auto grid md:grid-cols-2 gap-12 items-center">
@@ -111,13 +145,13 @@ function Hero() {
           <div className="mt-8 flex flex-wrap gap-4">
             <a
               href="#how"
-              className="px-6 py-3 rounded-md bg-forest text-paper font-medium hover:bg-forest/90"
+              className="landing-button-primary px-6 py-3 rounded-md bg-forest text-paper font-medium hover:bg-forest/90"
             >
               Explore AgriTrace
             </a>
             <Link
-              to={authLink(isAuthenticated, "/shipments/active")}
-              className="px-6 py-3 rounded-md border border-forest/30 font-medium hover:bg-forest/5"
+              to="/trace"
+              className="landing-button-outline px-6 py-3 rounded-md border border-forest/30 font-medium hover:bg-forest/5"
             >
               Track a Shipment
             </Link>
@@ -392,22 +426,27 @@ function OfflineFlow() {
   ];
   return (
     <section className="py-24 px-6">
-      <div className="max-w-3xl mx-auto text-center">
-        <h2 className="font-serif text-3xl md:text-4xl text-forest mb-4">
+      <div className="offline-content max-w-5xl mx-auto text-center">
+        <h2 className="font-serif text-3xl md:text-4xl text-forest">
           No network? No missing history.
         </h2>
-        <p className="text-ink/70 mb-14">
+        <p className="offline-description text-ink/70">
           AgriTrace is built for agricultural and transport environments where
           continuous internet connectivity can't be assumed.
         </p>
-        <div className="flex flex-wrap justify-center items-center gap-3 text-sm font-medium">
+        <ol className="offline-flow">
           {flow.map((f, i) => (
-            <span key={f.label} className="flex items-center gap-3">
-              <span className={`px-4 py-2 rounded-full ${f.tone}`}>{f.label}</span>
-              {i < flow.length - 1 && <span className="text-ink/30">→</span>}
-            </span>
+            <li key={f.label} className="offline-flow-step">
+              <span className="offline-flow-number" aria-hidden="true">
+                {String(i + 1).padStart(2, "0")}
+              </span>
+              <span className={`offline-flow-label ${f.tone}`}>{f.label}</span>
+              {i < flow.length - 1 && (
+                <span className="offline-flow-arrow" aria-hidden="true">→</span>
+              )}
+            </li>
           ))}
-        </div>
+        </ol>
       </div>
     </section>
   );
@@ -416,7 +455,6 @@ function OfflineFlow() {
 /* ---------- Traceability / QR ---------- */
 
 function TraceabilitySection() {
-  const { isAuthenticated } = useAuth();
   const checkpoints = [
     { t: "Origin — Nashik Farm Collective", d: "Harvested, node attached" },
     { t: "Cold Storage — Pune", d: "4.2°C, 82% RH" },
@@ -426,18 +464,15 @@ function TraceabilitySection() {
   return (
     <section id="trace" className="py-24 px-6 bg-forest text-paper">
       <div className="max-w-6xl mx-auto grid md:grid-cols-2 gap-14 items-center">
-        <div>
-          <h2 className="font-serif text-3xl md:text-4xl mb-6">
+        <div className="trace-copy">
+          <h2 className="font-serif text-3xl md:text-4xl">
             One scan. The story behind the shipment.
           </h2>
-          <p className="text-paper/70 mb-8">
+          <p className="text-paper/70 leading-relaxed">
             A crate leaves with a QR code. Anyone who scans it — a distributor, a
             retailer, a shopper — sees exactly where it's been.
           </p>
-          <Link
-            to={authLink(isAuthenticated, "/shipments/active")}
-            className="inline-block px-6 py-3 rounded-md bg-paper text-forest font-medium"
-          >
+          <Link to="/trace" className="landing-button-light inline-block px-6 py-3 rounded-md bg-paper text-forest font-medium">
             Track a Shipment
           </Link>
         </div>
@@ -523,12 +558,12 @@ function ImpactSection() {
   return (
     <section id="impact" className="py-24 px-6 bg-soil/10">
       <div className="max-w-6xl mx-auto">
-        <h2 className="font-serif text-3xl md:text-4xl text-forest mb-14 text-center">Impact</h2>
-        <div className="grid md:grid-cols-3 gap-10 text-center">
+        <h2 className="impact-heading font-serif text-3xl md:text-4xl text-forest text-center">Impact</h2>
+        <div className="grid md:grid-cols-3 gap-6 text-center">
           {items.map((i) => (
-            <div key={i.t}>
-              <p className="font-serif text-xl text-forest mb-2">{i.t}</p>
-              <p className="text-ink/60 text-sm">{i.d}</p>
+            <div key={i.t} className="impact-card">
+              <p className="font-serif text-xl text-forest">{i.t}</p>
+              <p className="text-ink/60 text-sm leading-relaxed">{i.d}</p>
             </div>
           ))}
         </div>
@@ -541,28 +576,60 @@ function ImpactSection() {
 
 function StakeholderJourney() {
   const stakeholders = [
-    { id: "farmer", name: "Farmer", body: "Shipment creation and origin traceability from the moment produce leaves the field." },
-    { id: "warehouse", name: "Warehouse", body: "Storage condition monitoring and handoff records between facilities." },
-    { id: "transporter", name: "Transporter", body: "Environmental monitoring and route visibility across the journey." },
-    { id: "distributor", name: "Distributor", body: "Confirmed condition history before goods are accepted downstream." },
-    { id: "retailer", name: "Retailer", body: "Verified quality records to support sourcing and shelf decisions." },
-    { id: "consumer", name: "Consumer", body: "QR-based product journey information, from farm to the point of purchase." },
+    {
+      id: "farmer",
+      name: "Farmers",
+      heading: "Farmer",
+      body: "Shipment creation and origin traceability from the moment produce leaves the field.",
+    },
+    {
+      id: "warehouse",
+      name: "Warehouses",
+      heading: "Warehouse",
+      body: "Storage condition monitoring and handoff records between facilities.",
+    },
+    {
+      id: "transporter",
+      name: "Transporters",
+      heading: "Transporter",
+      body: "Environmental monitoring and route visibility across the journey.",
+    },
+    {
+      id: "distributor",
+      name: "Distributors",
+      heading: "Distributor",
+      body: "Confirmed condition history before goods are accepted downstream.",
+    },
+    {
+      id: "retailer",
+      name: "Retailers",
+      heading: "Retailer",
+      body: "Verified quality records to support sourcing and shelf decisions.",
+    },
+    {
+      id: "consumer",
+      name: "Consumers",
+      heading: "Consumer",
+      body: "QR-based product journey information, from farm to the point of purchase.",
+    },
   ];
   const [active, setActive] = useState("farmer");
-  const current = stakeholders.find((s) => s.id === active);
+  const current = stakeholders.find((s) => s.id === active) ?? stakeholders[0];
 
   return (
     <section id="for" className="py-24 px-6">
       <div className="max-w-4xl mx-auto text-center">
-        <h2 className="font-serif text-3xl md:text-4xl text-forest mb-10">
+        <h2 className="stakeholder-heading font-serif text-3xl md:text-4xl text-forest">
           Who AgriTrace is for
         </h2>
-        <div className="flex flex-wrap justify-center gap-2 mb-10">
+        <div className="stakeholder-tabs flex flex-wrap justify-center gap-2">
           {stakeholders.map((s) => (
             <button
               key={s.id}
+              type="button"
+              aria-pressed={active === s.id}
               onClick={() => setActive(s.id)}
-              className={`px-4 py-2 rounded-full text-sm border border-forest/20 ${
+              className={`landing-stakeholder-button px-4 py-2 rounded-full text-sm border border-forest/20 ${
                 active === s.id ? "bg-forest text-paper" : ""
               }`}
             >
@@ -570,9 +637,9 @@ function StakeholderJourney() {
             </button>
           ))}
         </div>
-        <div className="text-left max-w-md mx-auto">
-          <p className="font-serif text-xl text-forest mb-2">{current.heading}</p>
-          <p className="text-ink/70">{current.body}</p>
+        <div className="stakeholder-panel text-left max-w-lg mx-auto">
+          <p className="font-serif text-xl text-forest">{current.heading}</p>
+          <p className="text-ink/70 leading-relaxed">{current.body}</p>
         </div>
       </div>
     </section>
@@ -582,30 +649,28 @@ function StakeholderJourney() {
 /* ---------- CTA ---------- */
 
 function CTA() {
-  const { isAuthenticated } = useAuth();
   return (
     <section className="py-28 px-6 bg-forest text-paper text-center">
-      <h2 className="font-serif text-4xl md:text-5xl mb-6 leading-tight">
-        Trace the journey.
-        <br />
-        Protect the produce.
-        <br />
-        Trust the data.
-      </h2>
-      <p className="text-paper/70 max-w-md mx-auto mb-10">
-        AgriTrace connects physical shipments with trustworthy digital records from
-        origin to destination.
-      </p>
-      <div className="flex flex-wrap justify-center gap-4">
-        <a href="#how" className="px-6 py-3 rounded-md bg-paper text-forest font-medium">
-          Explore the Platform
-        </a>
-        <Link
-          to={authLink(isAuthenticated, "/shipments/active")}
-          className="px-6 py-3 rounded-md border border-paper/40 font-medium"
-        >
-          Track a Shipment
-        </Link>
+      <div className="cta-content mx-auto">
+        <h2 className="font-serif text-4xl md:text-5xl leading-tight">
+          Trace the journey.
+          <br />
+          Protect the produce.
+          <br />
+          Trust the data.
+        </h2>
+        <p className="text-paper/70 leading-relaxed">
+          AgriTrace connects physical shipments with trustworthy digital records from
+          origin to destination.
+        </p>
+        <div className="flex flex-wrap justify-center gap-4">
+          <a href="#how" className="landing-button-light px-6 py-3 rounded-md bg-paper text-forest font-medium">
+            Explore the Platform
+          </a>
+          <Link to="/trace" className="landing-button-dark-outline px-6 py-3 rounded-md border border-paper/40 font-medium">
+            Track a Shipment
+          </Link>
+        </div>
       </div>
     </section>
   );

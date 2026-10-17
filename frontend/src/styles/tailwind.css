@@ -117,9 +117,18 @@
    rather than letting preflight affect the dashboard.
 
    `#root` is 1126px wide + centered in index.css, which would
-   box in a full-bleed landing page — the landing page opts out.
-   Landing.jsx's root element already carries `landing-page`.
+   box in a full-bleed landing page. When Landing is mounted, expand
+   that app root to the viewport; other pages keep the existing shell.
+   Landing.jsx's root element carries `landing-page`.
    ------------------------------------------------------------ */
+
+#root:has(.landing-page) {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  border-inline: 0;
+  text-align: left;
+}
 
 .landing-page {
   width: 100%;
@@ -128,11 +137,392 @@
   overflow-x: hidden;
   background: var(--color-paper);
   color: var(--color-ink);
+  text-align: left;
 }
+
+/* The app reset clears margins on paragraphs and headings, overriding the
+   landing page's layered Tailwind margin utilities. Restore those utilities
+   only within this page so their intended spacing and centering work. */
+.landing-page :is(h1, h2, h3, h4, p).mb-1 { margin-bottom: 0.25rem; }
+.landing-page :is(h1, h2, h3, h4, p).mb-2 { margin-bottom: 0.5rem; }
+.landing-page :is(h1, h2, h3, h4, p).mb-3 { margin-bottom: 0.75rem; }
+.landing-page :is(h1, h2, h3, h4, p).mb-4 { margin-bottom: 1rem; }
+.landing-page :is(h1, h2, h3, h4, p).mb-6 { margin-bottom: 1.5rem; }
+.landing-page :is(h1, h2, h3, h4, p).mb-8 { margin-bottom: 2rem; }
+.landing-page :is(h1, h2, h3, h4, p).mb-10 { margin-bottom: 2.5rem; }
+.landing-page :is(h1, h2, h3, h4, p).mb-12 { margin-bottom: 3rem; }
+.landing-page :is(h1, h2, h3, h4, p).mb-14 { margin-bottom: 3.5rem; }
+.landing-page :is(h1, h2, h3, h4, p).mt-2 { margin-top: 0.5rem; }
+.landing-page :is(h1, h2, h3, h4, p).mt-6 { margin-top: 1.5rem; }
+.landing-page :is(h1, h2, h3, h4, p).mt-8 { margin-top: 2rem; }
+.landing-page :is(h1, h2, h3, h4, p).mt-10 { margin-top: 2.5rem; }
+.landing-page p.mx-auto { margin-inline: auto; }
 
 /* Anchor targets must clear the fixed navbar (h ~72px). */
 .landing-page [id] {
   scroll-margin-top: 5rem;
+}
+
+.landing-page .offline-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.25rem;
+}
+
+.landing-page .offline-content h2 {
+  max-width: 100%;
+}
+
+.landing-page .offline-description {
+  max-width: 42rem;
+  line-height: 1.65;
+}
+
+.landing-page .offline-flow {
+  display: grid;
+  width: 100%;
+  max-width: 62rem;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+  margin: 1.25rem auto 0;
+  padding: 0;
+  list-style: none;
+}
+
+.landing-page .offline-flow-step {
+  position: relative;
+  display: flex;
+  min-height: 4.5rem;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid rgb(23 60 46 / 10%);
+  border-radius: 0.75rem;
+  background-color: rgb(255 255 255 / 55%);
+  text-align: left;
+}
+
+.landing-page .offline-flow-number {
+  display: inline-flex;
+  width: 2.5rem;
+  height: 2.5rem;
+  flex: 0 0 2.5rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  background-color: rgb(76 140 99 / 12%);
+  color: var(--color-forest);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.landing-page .offline-flow-label {
+  display: inline-flex;
+  min-height: 2.5rem;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.35;
+  text-align: center;
+}
+
+.landing-page .offline-flow-arrow {
+  position: absolute;
+  z-index: 1;
+  right: 1.25rem;
+  bottom: -1.05rem;
+  color: rgb(27 27 24 / 45%);
+  font-size: 1.125rem;
+  line-height: 1;
+  transform: rotate(90deg);
+}
+
+.landing-page .trace-copy {
+  display: flex;
+  max-width: 32rem;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1.5rem;
+}
+
+.landing-page .trace-copy h2,
+.landing-page .trace-copy p {
+  width: 100%;
+}
+
+.landing-page .impact-heading {
+  margin-bottom: 2.5rem;
+}
+
+.landing-page .impact-card {
+  display: flex;
+  min-height: 9rem;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.75rem;
+  padding: 1.5rem;
+  border: 1px solid rgb(23 60 46 / 8%);
+  border-radius: 0.75rem;
+  background-color: var(--color-paper);
+}
+
+.landing-page .stakeholder-heading {
+  margin-bottom: 2rem;
+}
+
+.landing-page .stakeholder-tabs {
+  margin-bottom: 2rem;
+}
+
+.landing-page .stakeholder-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1.5rem;
+  border: 1px solid rgb(23 60 46 / 10%);
+  border-radius: 0.75rem;
+  background-color: var(--color-paper);
+  box-shadow: 0 8px 24px rgb(23 60 46 / 5%);
+}
+
+.landing-page .cta-content {
+  display: flex;
+  max-width: 48rem;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+.landing-page .cta-content h2 {
+  max-width: 100%;
+  line-height: 1.12;
+}
+
+.landing-page .cta-content p {
+  max-width: 28rem;
+}
+
+.landing-page .landing-nav {
+  color: var(--color-ink);
+}
+
+.landing-page .landing-nav > div:first-child > a:first-child {
+  color: var(--color-forest);
+  flex-shrink: 0;
+}
+
+.landing-page .landing-nav-links a,
+.landing-page .landing-mobile-menu a {
+  color: var(--color-ink);
+  transition: color 0.2s ease;
+}
+
+.landing-page .landing-nav-links a:hover,
+.landing-page .landing-mobile-menu a:hover {
+  color: var(--color-leaf);
+}
+
+.landing-page .landing-nav-links,
+.landing-page .landing-track-link {
+  display: none;
+}
+
+.landing-page .landing-menu-toggle {
+  display: inline-flex;
+}
+
+.landing-page .landing-button-primary,
+.landing-page .landing-button-light,
+.landing-page .landing-button-outline,
+.landing-page .landing-button-dark-outline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 2.75rem;
+  text-decoration: none;
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease,
+    transform 0.2s ease;
+}
+
+.landing-page .landing-button-primary {
+  border: 1px solid var(--color-forest);
+  background-color: var(--color-forest);
+  color: var(--color-paper);
+}
+
+.landing-page .landing-button-primary:hover {
+  background-color: #0f2a20;
+  border-color: #0f2a20;
+  color: var(--color-paper);
+}
+
+.landing-page .landing-button-light {
+  border: 1px solid var(--color-paper);
+  background-color: var(--color-paper);
+  color: var(--color-forest);
+}
+
+.landing-page .landing-button-light:hover {
+  background-color: #e9e5db;
+  border-color: #e9e5db;
+  color: var(--color-forest);
+}
+
+.landing-page .landing-button-outline {
+  border: 1px solid rgb(23 60 46 / 30%);
+  background-color: transparent;
+  color: var(--color-forest);
+}
+
+.landing-page .landing-button-outline:hover {
+  background-color: rgb(23 60 46 / 6%);
+  color: var(--color-forest);
+}
+
+.landing-page .landing-button-dark-outline {
+  border: 1px solid rgb(246 243 236 / 40%);
+  background-color: transparent;
+  color: var(--color-paper);
+}
+
+.landing-page .landing-button-dark-outline:hover {
+  background-color: rgb(246 243 236 / 10%);
+  color: var(--color-paper);
+}
+
+.landing-page .landing-menu-toggle {
+  display: inline-flex;
+  width: 2.75rem;
+  height: 2.75rem;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: 1px solid rgb(23 60 46 / 25%);
+  border-radius: 0.375rem;
+  background: transparent;
+  color: var(--color-forest);
+}
+
+.landing-page .landing-menu-toggle span {
+  display: block;
+  width: 1.125rem;
+  height: 2px;
+  border-radius: 1px;
+  background-color: currentColor;
+}
+
+.landing-page .landing-mobile-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.5rem 1rem 1rem;
+  background-color: rgb(246 243 236 / 98%);
+  box-shadow: 0 8px 16px rgb(23 60 46 / 10%);
+}
+
+.landing-page .landing-mobile-menu a {
+  padding: 0.65rem 0.5rem;
+  font-size: 0.95rem;
+}
+
+.landing-page .landing-stakeholder-button {
+  border: 1px solid rgb(23 60 46 / 20%);
+  background-color: transparent;
+  color: var(--color-forest);
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.landing-page .landing-stakeholder-button:hover,
+.landing-page .landing-stakeholder-button[aria-pressed="true"] {
+  border-color: var(--color-forest);
+  background-color: var(--color-forest);
+  color: var(--color-paper);
+}
+
+.landing-page .landing-button-primary:focus-visible,
+.landing-page .landing-button-light:focus-visible,
+.landing-page .landing-button-outline:focus-visible,
+.landing-page .landing-button-dark-outline:focus-visible,
+.landing-page .landing-menu-toggle:focus-visible,
+.landing-page .landing-stakeholder-button:focus-visible {
+  outline: 2px solid var(--color-leaf);
+  outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-page .landing-button-primary,
+  .landing-page .landing-button-light,
+  .landing-page .landing-button-outline,
+  .landing-page .landing-button-dark-outline,
+  .landing-page .landing-nav-links a,
+  .landing-page .landing-mobile-menu a,
+  .landing-page .landing-stakeholder-button {
+    transition: none;
+  }
+}
+
+@media (min-width: 640px) {
+  .landing-page .landing-track-link {
+    display: inline-flex;
+  }
+
+  .landing-page .offline-flow {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .landing-page .offline-flow-arrow {
+    display: none;
+  }
+}
+
+@media (min-width: 1024px) {
+  .landing-page .landing-nav-links {
+    display: flex;
+  }
+
+  .landing-page .landing-menu-toggle,
+  .landing-page .landing-mobile-menu {
+    display: none;
+  }
+
+  .landing-page .offline-flow {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 0.75rem;
+  }
+
+  .landing-page .offline-flow-step {
+    min-height: 8rem;
+    flex-direction: column;
+    justify-content: center;
+    gap: 0.75rem;
+    padding: 1rem 0.75rem;
+    text-align: center;
+  }
+
+  .landing-page .offline-flow-label {
+    flex: none;
+  }
+
+  .landing-page .offline-flow-arrow {
+    display: inline;
+    top: 50%;
+    right: -0.9rem;
+    bottom: auto;
+    transform: translateY(-50%);
+  }
 }
 
 /* ------------------------------------------------------------
